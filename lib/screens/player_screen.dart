@@ -82,7 +82,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 url.contains('megacloud') ||
                 url.contains('rapid') ||
                 url.contains('filemoon') ||
-                url.contains('vidplay')) {
+                url.contains('vidplay') ||
+                url.contains('as-cdn') ||
+                url.contains('short.icu') ||
+                url.contains('anvod') ||
+                url.contains('owocdn') ||
+                url.contains('abyess') ||
+                url.contains('player') ||
+                url.contains('stream')) {
               return NavigationDecision.navigate;
             }
             // Block all other redirects (e.g. ad popups attempting to hijack the frame)
@@ -422,9 +429,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                         enableWorker: true,
                         lowLatencyMode: false,
                         backBufferLength: 60,
-                        manifestLoadingMaxRetry: 10,
-                        levelLoadingMaxRetry: 10,
-                        fragLoadingMaxRetry: 10,
+                        manifestLoadingMaxRetry: 100,
+                        manifestLoadingRetryDelay: 1000,
+                        levelLoadingMaxRetry: 100,
+                        levelLoadingRetryDelay: 1000,
+                        fragLoadingMaxRetry: 100,
+                        fragLoadingRetryDelay: 1000,
                         startLevel: -1
                     });
                     
@@ -472,7 +482,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                             switch(data.type) {
                                 case Hls.ErrorTypes.NETWORK_ERROR:
                                     console.log("Fatal network error encountered, try to recover");
-                                    hls.startLoad();
+                                    setTimeout(() => {
+                                        hls.startLoad();
+                                    }, 2000);
                                     break;
                                 case Hls.ErrorTypes.MEDIA_ERROR:
                                     console.log("Fatal media error encountered, try to recover");
@@ -486,13 +498,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                         hls.recoverMediaError();
                                     } else {
                                         console.log("Cannot recover, trying to reload source...");
-                                        hls.startLoad();
+                                        setTimeout(() => {
+                                            hls.startLoad();
+                                        }, 2000);
                                     }
                                     break;
                                 default:
                                     // Auto reconnect on other fatal errors
                                     console.log("Unrecoverable error, auto-reconnecting...");
-                                    hls.startLoad();
+                                    setTimeout(() => {
+                                        hls.startLoad();
+                                    }, 2000);
                                     break;
                             }
                         } else {
