@@ -65,9 +65,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
 
     controller
-      ..setUserAgent(
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      )
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFF000000))
       ..setNavigationDelegate(
@@ -145,17 +142,29 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             final res = await api.getAnimelokWatch(widget.animelokId!, epNum);
             if (res != null && res['servers'] != null) {
               final List servers = res['servers'];
-              // Look for Hindi servers (try M3U8 first for better quality)
-              final hindiServers = servers.where((s) => s['language'] == 'Hindi').toList();
+              // Look for Hindi servers
+              final hindiServers = servers.where((s) => 
+                s['language'] == 'Hindi' || 
+                s['name'] == 'Hindi' || 
+                s['tip'] == 'Multi' || 
+                s['name'] == 'Multi'
+              ).toList();
               
               if (hindiServers.isNotEmpty) {
-                // Prefer M3U8 streams for better playback
-                final m3u8Server = hindiServers.firstWhere(
-                  (s) => s['isM3U8'] == true,
-                  orElse: () => hindiServers.first,
+                // Strictly prioritize the 'Multi' server for Hindi as requested!
+                final selectedServer = hindiServers.firstWhere(
+                  (s) => s['name'] == 'Multi' && s['language'] == 'Hindi',
+                  orElse: () => hindiServers.firstWhere(
+                    (s) => s['name'] == 'Multi',
+                    orElse: () => hindiServers.firstWhere(
+                      (s) => s['language'] == 'Hindi' && s['isM3U8'] == true,
+                      orElse: () => hindiServers.first,
+                    ),
+                  ),
                 );
+                
                 bestRes = {
-                  'server': m3u8Server,
+                  'server': selectedServer,
                   'episodeNumber': epNum,
                 };
                 break; // Found Hindi, use this
@@ -484,13 +493,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 ''';
         _controller.loadHtmlString(htmlString, baseUrl: baseUrl);
       } else if (streamUrl != null) {
+        bool isAnimelok = widget.selectedType == 'hindi' || streamUrl.contains('animelok');
         _controller.loadRequest(
           Uri.parse(streamUrl),
           headers: {
-            'Referer': streamUrl.contains('animelok')
+            'Referer': isAnimelok
                 ? 'https://animelok.site/'
                 : 'https://hianime.to/',
-            'Origin': streamUrl.contains('animelok')
+            'Origin': isAnimelok
                 ? 'https://animelok.site'
                 : 'https://hianime.to',
           },
