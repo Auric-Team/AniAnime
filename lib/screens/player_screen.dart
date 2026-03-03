@@ -103,11 +103,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             }
           },
           onWebResourceError: (WebResourceError error) {
-            if (mounted) {
-              setState(() {
-                _errorMsg = "Failed to load player: ${error.description}";
-                _isLoading = false;
-              });
+            // Ignore resource errors (like failing to fetch a .ts video segment)
+            // as HLS.js handles retrying these automatically in the background.
+            if (error.isForMainFrame ?? false) {
+              if (mounted) {
+                setState(() {
+                  _errorMsg = "Connection error: ${error.description}";
+                  _isLoading = false;
+                });
+              }
             }
           },
         ),
@@ -334,6 +338,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             padding-bottom: 25px !important;
             padding-left: 20px !important;
             padding-right: 20px !important;
+        }
+
+        /* Hide native plyr error screen to prevent aesthetic disruption */
+        .plyr__video-wrapper::after, .plyr__error {
+            display: none !important;
         }
 
         #error-msg { 
