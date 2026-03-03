@@ -91,7 +91,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           );
         },
-        loading: () => const Center(child: CircularProgressIndicator(color: Color(0xFF0EA5E9))),
+        loading: () => _buildSkeletonLoading(),
         error: (err, stack) => Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -112,6 +112,110 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildSkeletonLoading() {
+    return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Shimmer.fromColors(
+            baseColor: const Color(0xFF121212),
+            highlightColor: const Color(0xFF2A2A2A),
+            child: Container(
+              height: MediaQuery.of(context).size.height * 0.65,
+              width: double.infinity,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 24),
+          _buildSkeletonSection(),
+          _buildSkeletonSection(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSkeletonSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          child: Shimmer.fromColors(
+            baseColor: const Color(0xFF121212),
+            highlightColor: const Color(0xFF2A2A2A),
+            child: Container(
+              height: 24,
+              width: 150,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 240,
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            scrollDirection: Axis.horizontal,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: 4,
+            itemBuilder: (context, index) {
+              return Container(
+                width: 140,
+                margin: const EdgeInsets.only(right: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Shimmer.fromColors(
+                        baseColor: const Color(0xFF121212),
+                        highlightColor: const Color(0xFF2A2A2A),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Shimmer.fromColors(
+                      baseColor: const Color(0xFF121212),
+                      highlightColor: const Color(0xFF2A2A2A),
+                      child: Container(
+                        height: 14,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Shimmer.fromColors(
+                      baseColor: const Color(0xFF121212),
+                      highlightColor: const Color(0xFF2A2A2A),
+                      child: Container(
+                        height: 14,
+                        width: 80,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 

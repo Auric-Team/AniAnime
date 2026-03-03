@@ -107,33 +107,49 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
       if (widget.selectedType == 'hindi' && widget.animelokId != null) {
         final api = ref.read(apiServiceProvider);
-        final res = await api.getAnimelokWatch(
-          widget.animelokId!,
-          widget.episodeNumber,
-        );
-
-        if (res != null && res['servers'] != null) {
-          final List servers = res['servers'];
-          // Try to find a Hindi iframe server
-          final iframeServer = servers.firstWhere(
-            (s) => s['language'] == 'Hindi' && s['isM3U8'] == false,
-            orElse: () => null,
-          );
-
-          if (iframeServer != null) {
-            streamUrl = iframeServer['url'];
-            isM3U8 = false;
-          } else {
-            final anyHindi = servers.firstWhere(
-              (s) => s['language'] == 'Hindi',
-              orElse: () => null,
-            );
-            if (anyHindi != null) {
-              streamUrl = anyHindi['url'];
-              isM3U8 = anyHindi['isM3U8'] == true;
-              if (isM3U8) baseUrl = 'https://animelok.site/';
+        
+        // Try multiple episode numbers to find the right Hindi episode
+        List<int> episodeNumbersToTry = [widget.episodeNumber];
+        if (widget.episodeNumber > 1) {
+          episodeNumbersToTry.add(widget.episodeNumber - 1);
+        }
+        episodeNumbersToTry.add(widget.episodeNumber + 1);
+        
+        Map<String, dynamic>? bestRes;
+        
+        for (int epNum in episodeNumbersToTry) {
+          try {
+            final res = await api.getAnimelokWatch(widget.animelokId!, epNum);
+            if (res != null && res['servers'] != null) {
+              final List servers = res['servers'];
+              // Look for Hindi servers (try M3U8 first for better quality)
+              final hindiServers = servers.where((s) => s['language'] == 'Hindi').toList();
+              
+              if (hindiServers.isNotEmpty) {
+                // Prefer M3U8 streams for better playback
+                final m3u8Server = hindiServers.firstWhere(
+                  (s) => s['isM3U8'] == true,
+                  orElse: () => hindiServers.first,
+                );
+                bestRes = {
+                  'server': m3u8Server,
+                  'episodeNumber': epNum,
+                };
+                break; // Found Hindi, use this
+              }
             }
+          } catch (_) {
+            continue;
           }
+        }
+        
+        if (bestRes != null) {
+          final server = bestRes['server'];
+          streamUrl = server['url'];
+          isM3U8 = server['isM3U8'] == true;
+          if (isM3U8) baseUrl = 'https://animelok.site/';
+        } else {
+          throw Exception('No Hindi server found for this episode');
         }
       } else {
         // Fetch HiAnime sources using API directly!
@@ -180,7 +196,33 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       }
 
       if (streamUrl == null) {
-        throw Exception('No stream found for the selected language.');
+        // For Hindi, fallback to sub if Hindi not available
+        if (widget.selectedType == 'hindi') {
+          try {
+            final api = ref.read(apiServiceProvider);
+            final res = await api.getHiAnimeEpisodeSources(widget.hianimeEpisodeId, 'sub');
+            if (res['sources'] != null) {
+              final sources = res['sources'] as List;
+              if (sources.isNotEmpty) {
+                final hlsSource = sources.firstWhere(
+                  (s) => s['isM3U8'] == true,
+                  orElse: () => sources.first,
+                );
+                streamUrl = hlsSource['url'];
+                isM3U8 = hlsSource['isM3U8'] == true;
+                tracks = res['tracks'] as List? ?? [];
+                final headers = res['headers'] as Map<String, dynamic>? ?? {};
+                if (headers['Referer'] != null) {
+                  baseUrl = headers['Referer'];
+                }
+              }
+            }
+          } catch (_) {
+            throw Exception('No Hindi stream found and fallback failed.');
+          }
+        } else {
+          throw Exception('No stream found for the selected language.');
+        }
       }
 
       _currentBaseUrl = baseUrl;
@@ -213,22 +255,72 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     <title>Player</title>
     <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
     <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+        body, html { 
+            margin: 0; padding: 0; width: 100%; height: 100%; 
+            background: #000; overflow: hidden; 
+            display: flex; align-items: center; justify-content: center; 
+            font-family: 'Poppins', sans-serif;
+        }
         .plyr--video { width: 100%; height: 100%; }
-        :root { --plyr-color-main: #0EA5E9; }
-        #error-msg { position: absolute; color: white; font-family: sans-serif; z-index: 10; text-align: center; padding: 20px; display: none; background: rgba(0,0,0,0.8); border-radius: 8px; }
-        #loading { position: absolute; color: #0EA5E9; font-family: sans-serif; z-index: 5; font-weight: bold; font-size: 18px; }
+        :root { 
+            --plyr-color-main: #0EA5E9;
+            --plyr-video-control-background-hover: rgba(14, 165, 233, 0.8);
+            --plyr-menu-background: rgba(15, 23, 42, 0.95);
+            --plyr-menu-color: #fff;
+            --plyr-font-family: 'Poppins', sans-serif;
+            --plyr-video-controls-background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.8));
+        }
+        
+        .plyr__control--overlaid {
+            background: rgba(14, 165, 233, 0.8);
+            box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4);
+            transition: all 0.3s ease;
+        }
+        .plyr__control--overlaid:hover {
+            transform: scale(1.1);
+            background: rgba(14, 165, 233, 1);
+        }
+        
+        #error-msg { 
+            position: absolute; color: white; z-index: 10; 
+            text-align: center; padding: 30px; display: none; 
+            background: rgba(15, 23, 42, 0.9); 
+            border-radius: 16px; border: 1px solid rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px); box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            max-width: 80%;
+        }
+        #error-msg h3 { margin: 0 0 10px 0; color: #ef4444; font-size: 1.2rem; }
+        #error-msg p { margin: 0 0 20px 0; color: #cbd5e1; font-size: 0.9rem; line-height: 1.4; }
+        #error-msg button {
+            padding: 10px 24px; background: linear-gradient(135deg, #0EA5E9, #3B82F6);
+            color: #fff; border: none; border-radius: 8px; font-weight: 600;
+            cursor: pointer; font-family: 'Poppins', sans-serif; transition: all 0.2s;
+        }
+        #error-msg button:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4); }
+        
+        #loading { 
+            position: absolute; z-index: 5; 
+            display: flex; flex-direction: column; align-items: center;
+        }
+        .spinner {
+            width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.1);
+            border-left-color: #0EA5E9; border-radius: 50%;
+            animation: spin 1s linear infinite; margin-bottom: 12px;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
-    <div id="loading">Loading Stream...</div>
+    <div id="loading">
+        <div class="spinner"></div>
+    </div>
     <div id="error-msg"></div>
     <video id="player" playsinline controls crossorigin>
         $tracksHtml
     </video>
     
-    <!-- Try loading local HLS or fallback to latest -->
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"></script>
     <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
     
     <script>
@@ -243,21 +335,29 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
                 autoplay: true,
                 keyboard: { focused: true, global: true },
+                settings: ['captions', 'quality', 'speed', 'loop'],
+                tooltips: { controls: true, seek: true }
             };
 
             function showError(msg) {
                 loadingMsg.style.display = 'none';
                 errorMsg.style.display = 'block';
-                errorMsg.innerHTML = '<b>Stream Error</b><br/>' + msg + '<br/><br/><button onclick="location.reload()" style="padding:8px 16px;background:#0EA5E9;color:#fff;border:none;border-radius:4px;">Retry</button>';
+                errorMsg.innerHTML = '<h3>Stream Error</h3><p>' + msg + '</p><button onclick="location.reload()">Retry Connection</button>';
             }
 
             try {
                 if (typeof Hls !== 'undefined' && Hls.isSupported()) {
                     const hls = new Hls({
-                        maxMaxBufferLength: 100,
+                        maxBufferLength: 30,
+                        maxMaxBufferLength: 60,
+                        maxBufferSize: 60 * 1000 * 1000,
+                        maxBufferHole: 0.5,
                         enableWorker: true,
-                        lowLatencyMode: false,
+                        lowLatencyMode: true,
+                        backBufferLength: 30
                     });
+                    
+                    hls.autoLevelEnabled = true;
                     
                     hls.loadSource(source);
                     hls.on(Hls.Events.MANIFEST_PARSED, function (event, data) {
@@ -284,7 +384,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                         if (data.fatal) {
                             switch(data.type) {
                                 case Hls.ErrorTypes.NETWORK_ERROR:
-                                    // Sometimes network errors resolve themselves with a retry
                                     console.log("Fatal network error encountered, try to recover");
                                     hls.startLoad();
                                     break;
@@ -316,7 +415,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     video.src = source;
                     video.play().catch(e => console.log('Autoplay prevented', e));
                 } else {
-                    showError("HLS is not supported in this browser.");
+                    showError("Your browser doesn't support the required video format.");
                 }
             } catch (err) {
                 showError(err.message);
@@ -327,7 +426,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 </html>
 ''';
         _controller.loadHtmlString(htmlString, baseUrl: baseUrl);
-      } else {
+      } else if (streamUrl != null) {
         _controller.loadRequest(
           Uri.parse(streamUrl),
           headers: {
@@ -418,20 +517,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             Container(
               color: Colors.black,
               child: const Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(color: Color(0xFF0EA5E9)),
-                    SizedBox(height: 16),
-                    Text(
-                      'Fetching Stream...',
-                      style: TextStyle(
-                        color: Colors.white54,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.0,
-                      ),
-                    ),
-                  ],
+                child: CircularProgressIndicator(
+                  color: Color(0xFF0EA5E9),
+                  strokeWidth: 3,
                 ),
               ),
             ),

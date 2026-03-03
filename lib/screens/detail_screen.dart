@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:readmore/readmore.dart';
+import 'package:shimmer/shimmer.dart';
 import '../providers/anime_provider.dart';
 import '../providers/hindi_mapping_provider.dart';
 import 'player_screen.dart';
@@ -121,8 +122,22 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
                       const SizedBox(height: 32),
                       
                       // Language Selector
-                      const Text('Audio Language', style: TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.w600))
-                          .animate().fadeIn(delay: 400.ms),
+                      Row(
+                        children: [
+                          const Text('Audio: ', style: TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.w600)),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(colors: [Color(0xFF0EA5E9), Color(0xFF8B5CF6)]),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              _selectedType.toUpperCase(),
+                              style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1),
+                            ),
+                          ),
+                        ],
+                      ).animate().fadeIn(delay: 400.ms),
                       const SizedBox(height: 12),
                       SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
@@ -206,13 +221,12 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
                                       image: DecorationImage(
                                         image: CachedNetworkImageProvider(
                                         anime['poster'] ?? '',
-                                        errorListener: (err) => print('Image error: $err'),
+                                        errorListener: (err) => debugPrint('Image error: $err'),
                                       ),
                                         fit: BoxFit.cover,
                                         colorFilter: ColorFilter.mode(Colors.black.withValues(alpha: 0.4), BlendMode.darken),
                                       ),
-                                    ),
-                                    alignment: Alignment.center,
+                                    ),                                    alignment: Alignment.center,
                                     child: const Icon(Icons.play_circle_fill_rounded, color: Colors.white, size: 32),
                                   ),
                                   const SizedBox(width: 16),
@@ -264,8 +278,133 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
             ],
           );
         },
-        loading: () => const Center(child: CircularProgressIndicator(color: Color(0xFF0EA5E9))),
+        loading: () => _buildDetailSkeleton(),
         error: (err, stack) => Center(child: Text('Error loading details\n$err')),
+      ),
+    );
+  }
+
+  Widget _buildDetailSkeleton() {
+    return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Hero skeleton
+          Stack(
+            children: [
+              Shimmer.fromColors(
+                baseColor: const Color(0xFF121212),
+                highlightColor: const Color(0xFF2A2A2A),
+                child: Container(
+                  height: 450,
+                  width: double.infinity,
+                  color: Colors.white,
+                ),
+              ),
+              Positioned(
+                bottom: 0,
+                left: 20,
+                right: 20,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Shimmer.fromColors(
+                      baseColor: const Color(0xFF121212),
+                      highlightColor: const Color(0xFF2A2A2A),
+                      child: Container(
+                        width: 130,
+                        height: 190,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 20),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Shimmer.fromColors(
+                            baseColor: const Color(0xFF121212),
+                            highlightColor: const Color(0xFF2A2A2A),
+                            child: Container(
+                              height: 30,
+                              width: 200,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Shimmer.fromColors(
+                            baseColor: const Color(0xFF121212),
+                            highlightColor: const Color(0xFF2A2A2A),
+                            child: Container(
+                              height: 30,
+                              width: 150,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          // Content skeleton
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Shimmer.fromColors(
+                  baseColor: const Color(0xFF121212),
+                  highlightColor: const Color(0xFF2A2A2A),
+                  child: Container(height: 20, width: double.infinity, color: Colors.white),
+                ),
+                const SizedBox(height: 8),
+                Shimmer.fromColors(
+                  baseColor: const Color(0xFF121212),
+                  highlightColor: const Color(0xFF2A2A2A),
+                  child: Container(height: 20, width: double.infinity, color: Colors.white),
+                ),
+                const SizedBox(height: 8),
+                Shimmer.fromColors(
+                  baseColor: const Color(0xFF121212),
+                  highlightColor: const Color(0xFF2A2A2A),
+                  child: Container(height: 20, width: 250, color: Colors.white),
+                ),
+                const SizedBox(height: 40),
+                Shimmer.fromColors(
+                  baseColor: const Color(0xFF121212),
+                  highlightColor: const Color(0xFF2A2A2A),
+                  child: Container(height: 30, width: 120, color: Colors.white),
+                ),
+                const SizedBox(height: 16),
+                for (int i = 0; i < 4; i++)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Shimmer.fromColors(
+                      baseColor: const Color(0xFF121212),
+                      highlightColor: const Color(0xFF2A2A2A),
+                      child: Container(
+                        height: 90,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

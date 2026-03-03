@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'home_screen.dart';
+import 'search_screen.dart';
+import 'my_list_screen.dart';
+import 'profile_screen.dart';
 
 class MainScreen extends ConsumerStatefulWidget {
   const MainScreen({super.key});
@@ -16,9 +19,9 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   
   final List<Widget> _screens = [
     const HomeScreen(),
-    const Scaffold(body: Center(child: Text('Search', style: TextStyle(color: Colors.white, fontSize: 24)))),
-    const Scaffold(body: Center(child: Text('My List', style: TextStyle(color: Colors.white, fontSize: 24)))),
-    const Scaffold(body: Center(child: Text('Profile', style: TextStyle(color: Colors.white, fontSize: 24)))),
+    const SearchScreen(),
+    const MyListScreen(),
+    const ProfileScreen(),
   ];
 
   @override
