@@ -169,6 +169,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         if (bestRes != null) {
           final server = bestRes['server'];
           streamUrl = server['url'];
+          if (streamUrl != null && streamUrl.contains('localhost:4000')) {
+            streamUrl = streamUrl.replaceFirst('http://localhost:4000', 'https://api.tatakai.me');
+          }
           isM3U8 = server['isM3U8'] == true;
           if (isM3U8) baseUrl = 'https://animelok.site/';
         } else {
@@ -398,13 +401,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             try {
                 if (typeof Hls !== 'undefined' && Hls.isSupported()) {
                     const hls = new Hls({
-                        maxBufferLength: 30,
-                        maxMaxBufferLength: 60,
-                        maxBufferSize: 60 * 1000 * 1000,
-                        maxBufferHole: 0.5,
+                        maxBufferLength: 60,
+                        maxMaxBufferLength: 120,
+                        maxBufferSize: 120 * 1000 * 1000,
+                        maxBufferHole: 0.3,
                         enableWorker: true,
-                        lowLatencyMode: true,
-                        backBufferLength: 30
+                        lowLatencyMode: false,
+                        backBufferLength: 60,
+                        manifestLoadingMaxRetry: 5,
+                        levelLoadingMaxRetry: 5,
+                        fragLoadingMaxRetry: 5,
+                        startLevel: -1
                     });
                     
                     hls.autoLevelEnabled = true;
@@ -492,7 +499,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMsg = e.toString();
+          String errorText = e.toString();
+          if (errorText.contains('400') || errorText.contains('404')) {
+            _errorMsg = "Episode unavailable. The server might have removed it or it's temporarily down.";
+          } else if (errorText.contains('timeout') || errorText.contains('522')) {
+            _errorMsg = "Connection timed out. The streaming server is taking too long to respond.";
+          } else {
+            _errorMsg = "Failed to load stream. Please try a different language or check your connection.";
+          }
           _isLoading = false;
         });
       }

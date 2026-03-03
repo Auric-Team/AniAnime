@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
@@ -15,12 +16,39 @@ final hindiMappingProvider = FutureProvider.family<String?, Map<String, String>>
   // Helper to check if a slug actually exists and has servers
   Future<String?> checkSlug(String slug) async {
     try {
-      final res = await api.getAnimelokWatch(slug, 1);
+      // Use a custom short timeout so we don't hang the UI if a server blocks us
+      final res = await api.getAnimelokWatch(slug, 1)
+          .timeout(const Duration(seconds: 4));
       if (res != null && res['servers'] != null && (res['servers'] as List).isNotEmpty) {
         return slug; // Valid!
       }
     } catch (_) {}
     return null;
+  }
+
+  // Helper to check a list of slugs concurrently and return the FIRST successful one
+  Future<String?> checkCandidates(Iterable<String> slugs) async {
+    if (slugs.isEmpty) return null;
+    
+    // Create a Completer that will complete as soon as we find a valid slug
+    // or when all slugs have been checked and failed.
+    final completer = Completer<String?>();
+    int pending = slugs.length;
+    
+    for (final slug in slugs) {
+      checkSlug(slug).then((result) {
+        if (result != null && !completer.isCompleted) {
+          completer.complete(result);
+        } else {
+          pending--;
+          if (pending == 0 && !completer.isCompleted) {
+            completer.complete(null);
+          }
+        }
+      });
+    }
+    
+    return completer.future;
   }
 
   // --- Phase 1: High Probability Direct Slugs (Fast Parallel Check) ---
@@ -37,20 +65,17 @@ final hindiMappingProvider = FutureProvider.family<String?, Map<String, String>>
     '$titleSlug-hindi-dubbed',
   };
 
-  // Run first batch in parallel for ultimate speed
-  final phase1Results = await Future.wait(phase1Candidates.map(checkSlug));
-  for (final result in phase1Results) {
-    if (result != null) return result;
-  }
+  final phase1Result = await checkCandidates(phase1Candidates);
+  if (phase1Result != null) return phase1Result;
 
   // --- Phase 2: MAL ID Alternative Titles (Parallel Check) ---
   try {
     // Wait for the info provider to finish or fetch it directly
-    final info = await ref.read(animeInfoProvider(hianimeId).future);
+    final info = await ref.read(animeInfoProvider(hianimeId).future).timeout(const Duration(seconds: 5));
     final malId = info['anime']?['info']?['malId'];
     
     if (malId != null && malId != 0) {
-      final jikanResponse = await Dio().get('https://api.jikan.moe/v4/anime/$malId');
+      final jikanResponse = await Dio().get('https://api.jikan.moe/v4/anime/$malId').timeout(const Duration(seconds: 5));
       final jikanData = jikanResponse.data['data'];
       
       if (jikanData != null) {
@@ -71,10 +96,8 @@ final hindiMappingProvider = FutureProvider.family<String?, Map<String, String>>
             phase2Candidates.add('$altSlug-hindi-dubbed');
         }
         
-        final phase2Results = await Future.wait(phase2Candidates.map(checkSlug));
-        for (final result in phase2Results) {
-          if (result != null) return result;
-        }
+        final phase2Result = await checkCandidates(phase2Candidates);
+        if (phase2Result != null) return phase2Result;
       }
     }
   } catch (e) {
@@ -82,9 +105,9 @@ final hindiMappingProvider = FutureProvider.family<String?, Map<String, String>>
   }
 
   // --- Phase 3: Robust Search API as last resort ---
-  // The search API is slow and sometimes blocked, but we use it if nothing else worked.
   try {
-    final searchData = await api.searchAnimelok(hianimeTitle);
+    // Also timeout the search
+    final searchData = await api.searchAnimelok(hianimeTitle).timeout(const Duration(seconds: 5));
     if (searchData != null && searchData['animes'] != null) {
       final List<dynamic> animes = searchData['animes'];
       if (animes.isNotEmpty) {
