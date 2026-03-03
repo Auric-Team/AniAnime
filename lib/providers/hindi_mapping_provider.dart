@@ -12,13 +12,41 @@ final hindiMappingProvider = FutureProvider.family<String?, Map<String, String>>
   final hianimeId = params['id']!;
   final hianimeTitle = params['title']!;
 
-  // Strategy 1: Try direct ID match (since Animelok uses HiAnime-style IDs)
-  try {
-    final directCheck = await api.getAnimelokWatch(hianimeId, 1);
-    if (directCheck != null && directCheck['servers'] != null) {
-      return hianimeId; // Direct match works!
+  // We will build a list of candidate IDs to test directly
+  Set<String> candidateIds = {};
+
+  // 1. Direct match (if hianimeId is something like naruto-shippuden-112, we try exactly that)
+  candidateIds.add(hianimeId);
+
+  // 2. Stripped ID (remove the trailing -number)
+  final strippedId = hianimeId.replaceAll(RegExp(r'-\d+$'), '');
+  candidateIds.add(strippedId);
+  candidateIds.add('$strippedId-hindi-dubbed');
+  candidateIds.add('$strippedId-hindi-dub');
+
+  // 3. Normalized Title as slug
+  String titleSlug = hianimeTitle.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-').replaceAll(RegExp(r'-+'), '-').replaceAll(RegExp(r'^-|-$'), '');
+  candidateIds.add(titleSlug);
+  candidateIds.add('$titleSlug-hindi-dubbed');
+
+  // Helper to check if a slug actually exists and has servers
+  Future<bool> checkSlugHasServers(String slug) async {
+    try {
+      final res = await api.getAnimelokWatch(slug, 1);
+      // If it returned data and has servers, it's valid
+      if (res != null && res['servers'] != null && (res['servers'] as List).isNotEmpty) {
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  // Check candidates immediately before doing heavy searches
+  for (final slug in candidateIds) {
+    if (await checkSlugHasServers(slug)) {
+      return slug;
     }
-  } catch (_) {}
+  }
 
   // Function to search and fuzzy match against a given target title
   Future<String?> searchAndMatch(String targetTitle) async {
@@ -30,8 +58,12 @@ final hindiMappingProvider = FutureProvider.family<String?, Map<String, String>>
           final List<String> candidateTitles = animes.map((a) => a['title'].toString()).toList();
           final matchResult = StringUtils.findBestMatch(targetTitle, candidateTitles);
           
-          if (matchResult.score > 0.6) {
-            return animes[matchResult.index]['id'].toString();
+          if (matchResult.score >= 0.75) {
+            final matchedId = animes[matchResult.index]['id'].toString();
+            // Verify it has servers
+            if (await checkSlugHasServers(matchedId)) {
+               return matchedId;
+            }
           }
         }
       }
@@ -64,6 +96,19 @@ final hindiMappingProvider = FutureProvider.family<String?, Map<String, String>>
           if (t['title'] != null) altTitles.add(t['title'].toString());
         }
 
+        // Add slugs from alt titles to direct candidates
+        for (final altTitle in altTitles) {
+            String altSlug = altTitle.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-').replaceAll(RegExp(r'-+'), '-').replaceAll(RegExp(r'^-|-$'), '');
+            candidateIds.add(altSlug);
+            candidateIds.add('$altSlug-hindi-dubbed');
+        }
+        
+        for (final slug in candidateIds) {
+          if (await checkSlugHasServers(slug)) {
+            return slug;
+          }
+        }
+
         // Try searching with alternative titles
         for (final altTitle in altTitles.toSet()) {
           if (altTitle.toLowerCase() == hianimeTitle.toLowerCase()) continue; // already tried
@@ -77,5 +122,8 @@ final hindiMappingProvider = FutureProvider.family<String?, Map<String, String>>
     debugPrint('MAL fallback error: $e');
   }
 
-  return null; // Hindi not available
+  // Strategy 4: We can't find it. 
+  // However, because the user wants it to be robust, 
+  // if EVERYTHING failed and search is broken, return null so it doesn't show a non-working button.
+  return null; 
 });

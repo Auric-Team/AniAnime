@@ -427,9 +427,11 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
           ),
           // Blur effect for background
           Positioned.fill(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
-              child: Container(color: Colors.black.withValues(alpha: 0.2)),
+            child: ClipRect(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
+                child: Container(color: Colors.black.withValues(alpha: 0.2)),
+              ),
             ),
           ),
           // Gradient fading into background

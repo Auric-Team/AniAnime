@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -255,65 +256,92 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     <title>Player</title>
     <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap');
         body, html { 
             margin: 0; padding: 0; width: 100%; height: 100%; 
             background: #000; overflow: hidden; 
             display: flex; align-items: center; justify-content: center; 
-            font-family: 'Poppins', sans-serif;
+            font-family: 'Montserrat', sans-serif;
+            -webkit-font-smoothing: antialiased;
         }
-        .plyr--video { width: 100%; height: 100%; }
+        .plyr--video { width: 100%; height: 100%; background: #000; }
         :root { 
-            --plyr-color-main: #0EA5E9;
-            --plyr-video-control-background-hover: rgba(14, 165, 233, 0.8);
+            --plyr-color-main: #E11D48;
+            --plyr-video-control-color-hover: #fff;
+            --plyr-video-control-background-hover: rgba(225, 29, 72, 0.9);
             --plyr-menu-background: rgba(15, 23, 42, 0.95);
             --plyr-menu-color: #fff;
-            --plyr-font-family: 'Poppins', sans-serif;
-            --plyr-video-controls-background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.8));
+            --plyr-font-family: 'Montserrat', sans-serif;
+            --plyr-video-controls-background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0) 100%);
+            --plyr-range-track-height: 6px;
+            --plyr-range-thumb-height: 16px;
         }
         
         .plyr__control--overlaid {
-            background: rgba(14, 165, 233, 0.8);
-            box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4);
-            transition: all 0.3s ease;
+            background: rgba(225, 29, 72, 0.85);
+            box-shadow: 0 8px 25px rgba(225, 29, 72, 0.5);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            padding: 24px;
         }
         .plyr__control--overlaid:hover {
-            transform: scale(1.1);
-            background: rgba(14, 165, 233, 1);
+            transform: scale(1.15);
+            background: rgba(225, 29, 72, 1);
+            box-shadow: 0 10px 30px rgba(225, 29, 72, 0.6);
         }
         
+        .plyr__controls {
+            padding-bottom: 25px !important;
+            padding-left: 20px !important;
+            padding-right: 20px !important;
+        }
+
         #error-msg { 
             position: absolute; color: white; z-index: 10; 
-            text-align: center; padding: 30px; display: none; 
-            background: rgba(15, 23, 42, 0.9); 
-            border-radius: 16px; border: 1px solid rgba(255,255,255,0.1);
-            backdrop-filter: blur(10px); box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            max-width: 80%;
+            text-align: center; padding: 40px; display: none; 
+            background: rgba(15, 23, 42, 0.85); 
+            border-radius: 24px; border: 1px solid rgba(255,255,255,0.05);
+            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            box-shadow: 0 25px 50px rgba(0,0,0,0.6);
+            max-width: 85%;
+            animation: fadeIn 0.5s ease;
         }
-        #error-msg h3 { margin: 0 0 10px 0; color: #ef4444; font-size: 1.2rem; }
-        #error-msg p { margin: 0 0 20px 0; color: #cbd5e1; font-size: 0.9rem; line-height: 1.4; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        
+        #error-msg h3 { margin: 0 0 15px 0; color: #f43f5e; font-size: 1.5rem; font-weight: 700; letter-spacing: -0.5px;}
+        #error-msg p { margin: 0 0 25px 0; color: #cbd5e1; font-size: 1rem; line-height: 1.6; }
         #error-msg button {
-            padding: 10px 24px; background: linear-gradient(135deg, #0EA5E9, #3B82F6);
-            color: #fff; border: none; border-radius: 8px; font-weight: 600;
-            cursor: pointer; font-family: 'Poppins', sans-serif; transition: all 0.2s;
+            padding: 12px 32px; background: linear-gradient(135deg, #E11D48, #BE123C);
+            color: #fff; border: none; border-radius: 12px; font-weight: 600; font-size: 1rem;
+            cursor: pointer; font-family: 'Montserrat', sans-serif; transition: all 0.3s ease;
+            box-shadow: 0 10px 20px rgba(225, 29, 72, 0.3);
         }
-        #error-msg button:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4); }
+        #error-msg button:hover { transform: translateY(-3px); box-shadow: 0 15px 25px rgba(225, 29, 72, 0.4); }
         
         #loading { 
             position: absolute; z-index: 5; 
-            display: flex; flex-direction: column; align-items: center;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background: #000; width: 100%; height: 100%;
         }
-        .spinner {
-            width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.1);
-            border-left-color: #0EA5E9; border-radius: 50%;
-            animation: spin 1s linear infinite; margin-bottom: 12px;
+        .loader {
+            width: 60px; height: 60px;
+            border: 4px solid rgba(255,255,255,0.1);
+            border-radius: 50%;
+            border-top-color: #E11D48;
+            animation: spin 1s cubic-bezier(0.68, -0.55, 0.265, 1.55) infinite;
+        }
+        .loading-text {
+            margin-top: 20px; color: #fff; font-weight: 600; letter-spacing: 2px;
+            text-transform: uppercase; font-size: 0.85rem; opacity: 0.8;
+            animation: pulse 1.5s ease-in-out infinite;
         }
         @keyframes spin { 100% { transform: rotate(360deg); } }
+        @keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
     </style>
 </head>
 <body>
     <div id="loading">
-        <div class="spinner"></div>
+        <div class="loader"></div>
+        <div class="loading-text">Loading Stream</div>
     </div>
     <div id="error-msg"></div>
     <video id="player" playsinline controls crossorigin>
@@ -342,7 +370,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             function showError(msg) {
                 loadingMsg.style.display = 'none';
                 errorMsg.style.display = 'block';
-                errorMsg.innerHTML = '<h3>Stream Error</h3><p>' + msg + '</p><button onclick="location.reload()">Retry Connection</button>';
+                errorMsg.innerHTML = '<h3>Stream Unavailable</h3><p>' + msg + '</p><button onclick="location.reload()">Retry Connection</button>';
             }
 
             try {
@@ -392,7 +420,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                     hls.recoverMediaError();
                                     break;
                                 default:
-                                    showError(data.details);
+                                    showError("Stream playback failed. The server might be down or blocked.");
                                     hls.destroy();
                                     break;
                             }
@@ -418,7 +446,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     showError("Your browser doesn't support the required video format.");
                 }
             } catch (err) {
-                showError(err.message);
+                showError("An unexpected error occurred while loading the player.");
             }
         });
     </script>
@@ -526,16 +554,23 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
           // Back Button Overlay
           Positioned(
-            top: MediaQuery.of(context).padding.top + 10,
-            left: 10,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.5),
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-                onPressed: () => Navigator.pop(context),
+            top: MediaQuery.of(context).padding.top + 16,
+            left: 16,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(30),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(30),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                  ),
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ),
               ),
             ),
           ),
