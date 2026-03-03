@@ -47,7 +47,7 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
   Widget build(BuildContext context) {
     final infoAsync = ref.watch(animeInfoProvider(widget.animeId));
     final episodesAsync = ref.watch(animeEpisodesProvider(widget.animeId));
-    final hindiMappingAsync = ref.watch(hindiMappingProvider({'id': widget.animeId, 'title': widget.title}));
+    final hindiMappingAsync = ref.watch(hindiMappingProvider((id: widget.animeId, title: widget.title)));
 
     return Scaffold(
       backgroundColor: const Color(0xFF050505),

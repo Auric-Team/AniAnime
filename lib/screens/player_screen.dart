@@ -485,19 +485,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                         hls.swapAudioCodec();
                                         hls.recoverMediaError();
                                     } else {
-                                        // Hard reset and resume seamlessly
-                                        console.log("Hard resetting player to recover...");
-                                        const cTime = video.currentTime;
-                                        hls.destroy();
-                                        initPlayer(cTime);
+                                        console.log("Cannot recover, trying to reload source...");
+                                        hls.startLoad();
                                     }
                                     break;
                                 default:
                                     // Auto reconnect on other fatal errors
                                     console.log("Unrecoverable error, auto-reconnecting...");
-                                    const cTime2 = video.currentTime;
-                                    hls.destroy();
-                                    initPlayer(cTime2);
+                                    hls.startLoad();
                                     break;
                             }
                         } else {

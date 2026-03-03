@@ -8,10 +8,10 @@ import 'anime_provider.dart';
 
 // Provides the mapped Animelok ID for a given HiAnime ID and Title.
 // It returns null if no Hindi version is found.
-final hindiMappingProvider = FutureProvider.family<String?, Map<String, String>>((ref, params) async {
+final hindiMappingProvider = FutureProvider.family<String?, ({String id, String title})>((ref, params) async {
   final api = ref.read(apiServiceProvider);
-  final hianimeId = params['id']!;
-  final hianimeTitle = params['title']!;
+  final hianimeId = params.id;
+  final hianimeTitle = params.title;
 
   // Helper to check if a slug actually exists and has servers
   Future<String?> checkSlug(String slug) async {
