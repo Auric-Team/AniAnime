@@ -407,7 +407,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 errorMsg.innerHTML = '<h3>Stream Unavailable</h3><p>' + msg + '</p><button onclick="location.reload()">Retry Connection</button>';
             }
 
-            try {
+            let player;
+            
+            function initPlayer(startTime = 0) {
+                loadingMsg.style.display = 'flex';
+                errorMsg.style.display = 'none';
+
                 if (typeof Hls !== 'undefined' && Hls.isSupported()) {
                     const hls = new Hls({
                         maxBufferLength: 60,
@@ -417,15 +422,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                         enableWorker: true,
                         lowLatencyMode: false,
                         backBufferLength: 60,
-                        manifestLoadingMaxRetry: 5,
-                        levelLoadingMaxRetry: 5,
-                        fragLoadingMaxRetry: 5,
+                        manifestLoadingMaxRetry: 10,
+                        levelLoadingMaxRetry: 10,
+                        fragLoadingMaxRetry: 10,
                         startLevel: -1
                     });
                     
                     hls.autoLevelEnabled = true;
-                    
                     hls.loadSource(source);
+
                     hls.on(Hls.Events.MANIFEST_PARSED, function (event, data) {
                         loadingMsg.style.display = 'none';
                         const availableQualities = hls.levels.map((l) => l.height);
@@ -433,11 +438,23 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                             default: availableQualities[0],
                             options: availableQualities,
                             forced: true,
-                            onChange: (e) => updateQuality(e),
+                            onChange: (e) => {
+                                window.hls.levels.forEach((level, levelIndex) => {
+                                    if (level.height === e) {
+                                        window.hls.currentLevel = levelIndex;
+                                    }
+                                });
+                            },
                         };
-                        const player = new Plyr(video, defaultOptions);
                         
-                        // Force play attempt
+                        if (!player) {
+                            player = new Plyr(video, defaultOptions);
+                        }
+                        
+                        if (startTime > 0) {
+                            video.currentTime = startTime;
+                        }
+                        
                         const playPromise = video.play();
                         if (playPromise !== undefined) {
                             playPromise.catch(error => {
@@ -446,8 +463,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                         }
                     });
 
+                    let recoverDecodingErrorDate = null;
+                    let recoverSwapAudioCodecDate = null;
+
                     hls.on(Hls.Events.ERROR, function(event, data) {
                         if (data.fatal) {
+                            loadingMsg.style.display = 'flex';
                             switch(data.type) {
                                 case Hls.ErrorTypes.NETWORK_ERROR:
                                     console.log("Fatal network error encountered, try to recover");
@@ -455,34 +476,76 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                     break;
                                 case Hls.ErrorTypes.MEDIA_ERROR:
                                     console.log("Fatal media error encountered, try to recover");
-                                    hls.recoverMediaError();
+                                    const now = performance.now();
+                                    if (!recoverDecodingErrorDate || now - recoverDecodingErrorDate > 3000) {
+                                        recoverDecodingErrorDate = now;
+                                        hls.recoverMediaError();
+                                    } else if (!recoverSwapAudioCodecDate || now - recoverSwapAudioCodecDate > 3000) {
+                                        recoverSwapAudioCodecDate = now;
+                                        hls.swapAudioCodec();
+                                        hls.recoverMediaError();
+                                    } else {
+                                        // Hard reset and resume seamlessly
+                                        console.log("Hard resetting player to recover...");
+                                        const cTime = video.currentTime;
+                                        hls.destroy();
+                                        initPlayer(cTime);
+                                    }
                                     break;
                                 default:
-                                    showError("Stream playback failed. The server might be down or blocked.");
+                                    // Auto reconnect on other fatal errors
+                                    console.log("Unrecoverable error, auto-reconnecting...");
+                                    const cTime2 = video.currentTime;
                                     hls.destroy();
+                                    initPlayer(cTime2);
                                     break;
+                            }
+                        } else {
+                            // Non-fatal, just hide error if stream is ready
+                            if (video.readyState >= 3) {
+                                loadingMsg.style.display = 'none';
                             }
                         }
                     });
+
+                    hls.on(Hls.Events.FRAG_BUFFERED, () => {
+                         loadingMsg.style.display = 'none';
+                    });
+
                     hls.attachMedia(video);
                     window.hls = hls;
-                    
-                    function updateQuality(newQuality) {
-                        window.hls.levels.forEach((level, levelIndex) => {
-                            if (level.height === newQuality) {
-                                window.hls.currentLevel = levelIndex;
-                            }
-                        });
-                    }
+
                 } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                    // Native HLS support (Safari / iOS)
                     loadingMsg.style.display = 'none';
-                    const player = new Plyr(video, defaultOptions);
+                    if (!player) {
+                        player = new Plyr(video, defaultOptions);
+                    }
                     video.src = source;
+                    if (startTime > 0) video.currentTime = startTime;
                     video.play().catch(e => console.log('Autoplay prevented', e));
                 } else {
+                    loadingMsg.style.display = 'none';
                     showError("Your browser doesn't support the required video format.");
                 }
+            }
+
+            try {
+                initPlayer();
+                
+                // Show loading spinner on buffering
+                video.addEventListener('waiting', () => {
+                    loadingMsg.style.display = 'flex';
+                });
+                video.addEventListener('playing', () => {
+                    loadingMsg.style.display = 'none';
+                });
+                video.addEventListener('seeking', () => {
+                    loadingMsg.style.display = 'flex';
+                });
+                video.addEventListener('seeked', () => {
+                    loadingMsg.style.display = 'none';
+                });
+
             } catch (err) {
                 showError("An unexpected error occurred while loading the player.");
             }
