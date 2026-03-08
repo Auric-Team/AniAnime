@@ -4,7 +4,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import '../providers/anime_provider.dart';
+import '../providers/watch_history_provider.dart';
 import 'detail_screen.dart';
 import 'search_screen.dart';
 
@@ -100,35 +102,48 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           final latestEpisodes =
               data['latestEpisodeAnimes'] as List<dynamic>? ?? [];
           final topAiring = data['topAiringAnimes'] as List<dynamic>? ?? [];
+          final watchHistory = ref.watch(watchHistoryProvider);
 
-          return SingleChildScrollView(
-            padding: const EdgeInsets.only(
-              bottom: 100,
-            ), // padding for bottom nav
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (spotlight.isNotEmpty)
-                  _buildSpotlightCarousel(
-                    spotlight,
-                  ).animate().fadeIn(duration: 600.ms),
-                const SizedBox(height: 24),
-                if (trending.isNotEmpty)
-                  _buildSection('Trending Now', trending, 0)
-                      .animate()
-                      .slideY(begin: 0.2, end: 0, delay: 200.ms)
-                      .fadeIn(),
-                if (latestEpisodes.isNotEmpty)
-                  _buildSection('Latest Episodes', latestEpisodes, 1)
-                      .animate()
-                      .slideY(begin: 0.2, end: 0, delay: 300.ms)
-                      .fadeIn(),
-                if (topAiring.isNotEmpty)
-                  _buildSection('Top Airing', topAiring, 2)
-                      .animate()
-                      .slideY(begin: 0.2, end: 0, delay: 400.ms)
-                      .fadeIn(),
-              ],
+          return RefreshIndicator(
+            onRefresh: () async {
+              ref.invalidate(homeDataProvider);
+            },
+            color: const Color(0xFF8B5CF6),
+            backgroundColor: const Color(0xFF1E1E2A),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.only(
+                bottom: 100,
+              ), // padding for bottom nav
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (spotlight.isNotEmpty)
+                    _buildSpotlightCarousel(
+                      spotlight,
+                    ).animate().fadeIn(duration: 600.ms),
+                  const SizedBox(height: 24),
+                  if (watchHistory.isNotEmpty)
+                    _buildContinueWatching(watchHistory)
+                        .animate()
+                        .fadeIn(delay: 200.ms)
+                        .slideY(begin: 0.2, end: 0),
+                  if (trending.isNotEmpty)
+                    _buildSection('Trending Now', trending, 0)
+                        .animate()
+                        .slideY(begin: 0.2, end: 0, delay: 200.ms)
+                        .fadeIn(),
+                  if (latestEpisodes.isNotEmpty)
+                    _buildSection('Latest Episodes', latestEpisodes, 1)
+                        .animate()
+                        .slideY(begin: 0.2, end: 0, delay: 300.ms)
+                        .fadeIn(),
+                  if (topAiring.isNotEmpty)
+                    _buildSection('Top Airing', topAiring, 2)
+                        .animate()
+                        .slideY(begin: 0.2, end: 0, delay: 400.ms)
+                        .fadeIn(),
+                ],
+              ),
             ),
           );
         },
@@ -643,6 +658,105 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           return FadeTransition(opacity: animation, child: child);
         },
       ),
+    );
+  }
+
+  Widget _buildContinueWatching(List<Map<String, dynamic>> history) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          child: Text(
+            'Continue Watching',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 180,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            itemCount: history.length,
+            itemBuilder: (context, index) {
+              final item = history[index];
+              return GestureDetector(
+                onTap: () {
+                  // Direct navigation to player could be implemented here if full data is available,
+                  // for now route to DetailScreen to pick up episodes provider cleanly.
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => DetailScreen(
+                        animeId: item['animeId'],
+                        title: item['animeTitle'],
+                      ),
+                    ),
+                  );
+                },
+                child: Container(
+                  width: 240,
+                  margin: const EdgeInsets.symmetric(horizontal: 6),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    image: DecorationImage(
+                      image: CachedNetworkImageProvider(item['animePoster']),
+                      fit: BoxFit.cover,
+                      colorFilter: ColorFilter.mode(
+                        Colors.black.withValues(alpha: 0.5),
+                        BlendMode.darken,
+                      ),
+                    ),
+                  ),
+                  child: Stack(
+                    children: [
+                      Positioned(
+                        bottom: 12,
+                        left: 12,
+                        right: 12,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              item['animeTitle'],
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              'Episode ${item['lastWatchedEpisodeNumber']}',
+                              style: const TextStyle(
+                                color: Color(0xFF0EA5E9),
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Center(
+                        child: Icon(
+                          Icons.play_circle_fill,
+                          size: 48,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
     );
   }
 }

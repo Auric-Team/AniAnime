@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:anianime/services/api_service.dart';
 import 'package:anianime/providers/hindi_mapping_provider.dart';
-import 'package:anianime/providers/anime_provider.dart';
 import 'package:anianime/config/app_config.dart';
 
 void main() {

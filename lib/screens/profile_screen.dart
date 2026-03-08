@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'settings_screen.dart';
+import '../providers/watchlist_provider.dart';
+import '../providers/watch_history_provider.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final watchlist = ref.watch(watchlistProvider);
+    final history = ref.watch(watchHistoryProvider);
+
     return Scaffold(
       backgroundColor: const Color(0xFF050505),
       body: SafeArea(
@@ -57,7 +63,38 @@ class ProfileScreen extends StatelessWidget {
                 'Sign in to sync your progress',
                 style: TextStyle(fontSize: 14, color: Colors.grey[400]),
               ).animate().fadeIn(delay: 300.ms),
-              const SizedBox(height: 40),
+              const SizedBox(height: 30),
+              // Stats Section
+              Row(
+                children: [
+                  Expanded(
+                    child:
+                        _buildStatCard(
+                              'Watched',
+                              '${history.length}',
+                              Icons.remove_red_eye_rounded,
+                              const Color(0xFF0EA5E9),
+                            )
+                            .animate()
+                            .fadeIn(delay: 350.ms)
+                            .slideY(begin: 0.1, end: 0),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child:
+                        _buildStatCard(
+                              'My List',
+                              '${watchlist.length}',
+                              Icons.bookmark_rounded,
+                              const Color(0xFF8B5CF6),
+                            )
+                            .animate()
+                            .fadeIn(delay: 400.ms)
+                            .slideY(begin: 0.1, end: 0),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 30),
               _buildMenuItem(
                 Icons.history_rounded,
                 'Watch History',
@@ -170,5 +207,51 @@ class ProfileScreen extends StatelessWidget {
         ),
       ),
     ).animate().fadeIn(delay: 400.ms).slideX(begin: 0.1, end: 0);
+  }
+
+  Widget _buildStatCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF121212),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: color, size: 24),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(title, style: TextStyle(fontSize: 12, color: Colors.grey[400])),
+        ],
+      ),
+    );
   }
 }

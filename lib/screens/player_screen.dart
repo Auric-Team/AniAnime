@@ -1,26 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
+import '../providers/watch_history_provider.dart';
 import '../services/api_service.dart';
 import '../config/app_config.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
+  final String animeId;
   final String hianimeEpisodeId;
   final String? animelokId;
   final int episodeNumber;
   final String selectedType;
   final String animeTitle;
+  final List<dynamic> allEpisodes;
 
   const PlayerScreen({
     super.key,
+    required this.animeId,
     required this.hianimeEpisodeId,
     this.animelokId,
     required this.episodeNumber,
     required this.selectedType,
     required this.animeTitle,
+    required this.allEpisodes,
   });
 
   @override
@@ -32,6 +39,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   bool _isLoading = true;
   String? _errorMsg;
   String _currentBaseUrl = '';
+
+  bool _showOverlay = true;
+  Timer? _hideControlsTimer;
+  double _startAt = 0.0;
+
+  void _startHideTimer() {
+    _hideControlsTimer?.cancel();
+    _hideControlsTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) setState(() => _showOverlay = false);
+    });
+  }
 
   @override
   void initState() {
@@ -66,6 +84,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     controller
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFF000000))
+      ..addJavaScriptChannel(
+        'VideoProgress',
+        onMessageReceived: (message) async {
+          final position = double.tryParse(message.message);
+          if (position != null && position > 0) {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setDouble(
+              'progress_${widget.animeId}_${widget.hianimeEpisodeId}',
+              position,
+            );
+          }
+        },
+      )
       ..setNavigationDelegate(
         NavigationDelegate(
           onNavigationRequest: (NavigationRequest request) {
@@ -128,6 +159,25 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   Future<void> _loadStream() async {
     try {
+      ref
+          .read(watchHistoryProvider.notifier)
+          .markEpisodeWatched(
+            animeId: widget.animeId,
+            animeTitle: widget.animeTitle,
+            animePoster:
+                '', // We don't have the poster here, detail screen handles that or we pass it later
+            episodeId: widget.hianimeEpisodeId,
+            episodeNumber: widget.episodeNumber,
+          );
+
+      final prefs = await SharedPreferences.getInstance();
+      _startAt =
+          prefs.getDouble(
+            'progress_${widget.animeId}_${widget.hianimeEpisodeId}',
+          ) ??
+          0.0;
+
+      _startHideTimer();
       String? streamUrl;
       bool isM3U8 = false;
       List<dynamic> tracks = [];
@@ -454,6 +504,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                         },
                     };
                     const player = new Plyr(video, options);
+                    player.on('ready', () => {
+                       if ($_startAt > 0) player.currentTime = $_startAt;
+                    });
+                    player.on('timeupdate', () => {
+                       VideoProgress.postMessage(player.currentTime.toString());
+                    });
                 });
 
                 hls.on(Hls.Events.ERROR, function(event, data) {
@@ -480,6 +536,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                 video.src = source;
                 const player = new Plyr(video, options);
+                player.on('ready', () => {
+                   if ($_startAt > 0) player.currentTime = $_startAt;
+                });
+                player.on('timeupdate', () => {
+                   VideoProgress.postMessage(player.currentTime.toString());
+                });
                 loadingMsg.style.display = 'none';
             } else {
                 showError("Video format not supported.");
@@ -518,68 +580,205 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    int currentIndex = widget.allEpisodes.indexWhere(
+      (ep) => ep['episodeId'] == widget.hianimeEpisodeId,
+    );
+    bool hasNext =
+        currentIndex >= 0 && currentIndex < widget.allEpisodes.length - 1;
+    bool hasPrev = currentIndex > 0;
+
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          Center(
-            child: _errorMsg != null
-                ? Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.error_outline,
-                        color: Colors.white54,
-                        size: 64,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        _errorMsg!,
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                      const SizedBox(height: 24),
-                      ElevatedButton(
-                        onPressed: () {
-                          setState(() {
-                            _isLoading = true;
-                            _errorMsg = null;
-                          });
-                          _loadStream();
-                        },
-                        child: const Text('Retry'),
-                      ),
-                    ],
-                  )
-                : SafeArea(
-                    bottom: false,
-                    child: WebViewWidget(controller: _controller),
-                  ),
-          ),
-          if (_isLoading)
-            Container(
-              color: Colors.black,
-              child: const Center(
-                child: CircularProgressIndicator(color: Color(0xFF8B5CF6)),
-              ),
+      body: GestureDetector(
+        onTap: () {
+          setState(() => _showOverlay = !_showOverlay);
+          if (_showOverlay) _startHideTimer();
+        },
+        behavior: HitTestBehavior.translucent,
+        child: Stack(
+          children: [
+            Center(
+              child: _errorMsg != null
+                  ? Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.error_outline,
+                          color: Colors.white54,
+                          size: 64,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          _errorMsg!,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        const SizedBox(height: 24),
+                        ElevatedButton(
+                          onPressed: () {
+                            setState(() {
+                              _isLoading = true;
+                              _errorMsg = null;
+                            });
+                            _loadStream();
+                          },
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    )
+                  : SafeArea(
+                      bottom: false,
+                      child: WebViewWidget(controller: _controller),
+                    ),
             ),
-
-          // Back Button
-          Positioned(
-            top: 20,
-            left: 20,
-            child: GestureDetector(
-              onTap: () => Navigator.pop(context),
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.5),
-                  shape: BoxShape.circle,
+            if (_isLoading)
+              Container(
+                color: Colors.black,
+                child: const Center(
+                  child: CircularProgressIndicator(color: Color(0xFF8B5CF6)),
                 ),
-                child: const Icon(Icons.arrow_back, color: Colors.white),
+              ),
+
+            // Controls Overlay
+            AnimatedOpacity(
+              opacity: _showOverlay ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 300),
+              child: IgnorePointer(
+                ignoring: !_showOverlay,
+                child: Stack(
+                  children: [
+                    // Top Bar
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        height: 80,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.black.withValues(alpha: 0.8),
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            GestureDetector(
+                              onTap: () => Navigator.pop(context),
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.5),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.arrow_back,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    widget.animeTitle,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  Text(
+                                    'Episode ${widget.episodeNumber}',
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // Next / Prev Buttons
+                    Positioned(
+                      bottom: 40,
+                      right: 40,
+                      child: Row(
+                        children: [
+                          if (hasPrev)
+                            FloatingActionButton.extended(
+                              heroTag: 'prevBtn',
+                              onPressed: () {
+                                final prevEp =
+                                    widget.allEpisodes[currentIndex - 1];
+                                Navigator.pushReplacement(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => PlayerScreen(
+                                      animeId: widget.animeId,
+                                      hianimeEpisodeId: prevEp['episodeId'],
+                                      animelokId: widget.animelokId,
+                                      episodeNumber: prevEp['number'],
+                                      selectedType: widget.selectedType,
+                                      animeTitle: widget.animeTitle,
+                                      allEpisodes: widget.allEpisodes,
+                                    ),
+                                  ),
+                                );
+                              },
+                              backgroundColor: Colors.black.withValues(
+                                alpha: 0.7,
+                              ),
+                              icon: const Icon(Icons.skip_previous_rounded),
+                              label: const Text('Prev'),
+                            ),
+                          if (hasPrev && hasNext) const SizedBox(width: 16),
+                          if (hasNext)
+                            FloatingActionButton.extended(
+                              heroTag: 'nextBtn',
+                              onPressed: () {
+                                final nextEp =
+                                    widget.allEpisodes[currentIndex + 1];
+                                Navigator.pushReplacement(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => PlayerScreen(
+                                      animeId: widget.animeId,
+                                      hianimeEpisodeId: nextEp['episodeId'],
+                                      animelokId: widget.animelokId,
+                                      episodeNumber: nextEp['number'],
+                                      selectedType: widget.selectedType,
+                                      animeTitle: widget.animeTitle,
+                                      allEpisodes: widget.allEpisodes,
+                                    ),
+                                  ),
+                                );
+                              },
+                              backgroundColor: const Color(0xFF0EA5E9),
+                              icon: const Icon(Icons.skip_next_rounded),
+                              label: const Text('Next'),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

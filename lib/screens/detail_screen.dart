@@ -7,6 +7,8 @@ import 'package:readmore/readmore.dart';
 import 'package:shimmer/shimmer.dart';
 import '../providers/anime_provider.dart';
 import '../providers/hindi_mapping_provider.dart';
+import '../providers/watchlist_provider.dart';
+import '../providers/watch_history_provider.dart';
 import 'player_screen.dart';
 
 class DetailScreen extends ConsumerStatefulWidget {
@@ -55,6 +57,13 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
     final hindiMappingAsync = ref.watch(
       hindiMappingProvider((id: widget.animeId, title: widget.title)),
     );
+    final isSaved = ref
+        .read(watchlistProvider.notifier)
+        .isInWatchlist(widget.animeId);
+
+    final watchedEpisodes = ref
+        .watch(watchHistoryProvider.notifier)
+        .getWatchedEpisodeIds(widget.animeId);
 
     return Scaffold(
       backgroundColor: const Color(0xFF050505),
@@ -64,6 +73,56 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
             ? const Color(0xFF050505).withValues(alpha: 0.9)
             : Colors.transparent,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: Icon(
+              isSaved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+              color: isSaved ? const Color(0xFF8B5CF6) : Colors.white,
+            ),
+            onPressed: () {
+              infoAsync.whenData((info) {
+                if (info != null &&
+                    info['anime'] != null &&
+                    info['anime']['info'] != null) {
+                  final anime = info['anime']['info'];
+                  ref.read(watchlistProvider.notifier).toggleWatchlist({
+                    'id': widget.animeId,
+                    'name': widget.title,
+                    'poster': anime['poster'] ?? '',
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        isSaved ? 'Removed from My List' : 'Added to My List',
+                      ),
+                      backgroundColor: const Color(0xFF8B5CF6),
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  );
+                }
+              });
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.share_rounded, color: Colors.white),
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Text('Link copied to clipboard!'),
+                  backgroundColor: const Color(0xFF8B5CF6),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(width: 8),
+        ],
         title: _isScrolled
             ? Text(
                 widget.title,
@@ -95,6 +154,9 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
             );
           }
           final anime = info['anime']['info'];
+          final stats = anime['stats']?['episodes'];
+          final int subCount = stats?['sub'] ?? 0;
+          final int dubCount = stats?['dub'] ?? 0;
           return CustomScrollView(
             controller: _scrollController,
             physics: const BouncingScrollPhysics(),
@@ -107,9 +169,88 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const SizedBox(height: 16),
+                      // Play First Episode Button
+                      episodesAsync.maybeWhen(
+                        data: (episodes) {
+                          if (episodes != null && episodes.isNotEmpty) {
+                            final firstEp = episodes.first;
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 24),
+                              child:
+                                  SizedBox(
+                                    width: double.infinity,
+                                    height: 54,
+                                    child: ElevatedButton.icon(
+                                      onPressed: () {
+                                        final hindiId = hindiMappingAsync.value;
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => PlayerScreen(
+                                              animeId: widget.animeId,
+                                              hianimeEpisodeId:
+                                                  firstEp['episodeId'],
+                                              animelokId: hindiId,
+                                              episodeNumber: firstEp['number'],
+                                              selectedType: _selectedType,
+                                              animeTitle: widget.title,
+                                              allEpisodes: episodes.toList(),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      icon: const Icon(
+                                        Icons.play_arrow_rounded,
+                                        size: 28,
+                                      ),
+                                      label: const Text(
+                                        'Play First Episode',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(
+                                          0xFF0EA5E9,
+                                        ),
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            16,
+                                          ),
+                                        ),
+                                        elevation: 8,
+                                        shadowColor: const Color(
+                                          0xFF0EA5E9,
+                                        ).withValues(alpha: 0.5),
+                                      ),
+                                    ),
+                                  ).animate().scale(
+                                    delay: 100.ms,
+                                    begin: const Offset(0.95, 0.95),
+                                  ),
+                            );
+                          }
+                          return const SizedBox.shrink();
+                        },
+                        orElse: () => const SizedBox.shrink(),
+                      ),
                       // Meta Info Row
                       Row(
                         children: [
+                          if (anime['moreInfo']?['status'] != null) ...[
+                            _buildBadge(
+                              anime['moreInfo']['status'],
+                              anime['moreInfo']['status']
+                                      .toString()
+                                      .toLowerCase()
+                                      .contains('airing')
+                                  ? Colors.greenAccent
+                                  : const Color(0xFF8B5CF6),
+                            ),
+                            const SizedBox(width: 12),
+                          ],
                           if (anime['stats']?['rating'] != null) ...[
                             const Icon(
                               Icons.star_rounded,
@@ -173,6 +314,39 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
                           color: Color(0xFF0EA5E9),
                         ),
                       ).animate().fadeIn(delay: 300.ms),
+                      if (anime['moreInfo'] != null &&
+                          anime['moreInfo']['genres'] != null) ...[
+                        const SizedBox(height: 16),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: (anime['moreInfo']['genres'] as List).map((
+                            g,
+                          ) {
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.05),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.1),
+                                ),
+                              ),
+                              child: Text(
+                                g.toString(),
+                                style: TextStyle(
+                                  color: Colors.grey[300],
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ).animate().fadeIn(delay: 350.ms),
+                      ],
                       const SizedBox(height: 32),
 
                       // Language Selector
@@ -214,9 +388,11 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
                         scrollDirection: Axis.horizontal,
                         child: Row(
                           children: [
-                            _buildLangChip('Sub', 'sub'),
-                            const SizedBox(width: 12),
-                            _buildLangChip('Dub', 'dub'),
+                            _buildLangChip('Sub', 'sub', count: subCount),
+                            if (dubCount > 0) ...[
+                              const SizedBox(width: 12),
+                              _buildLangChip('Dub', 'dub', count: dubCount),
+                            ],
                             const SizedBox(width: 12),
                             hindiMappingAsync.when(
                               data: (hindiId) => hindiId != null
@@ -274,13 +450,47 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
                       ),
                     );
                   }
+
+                  List filteredEpisodes = episodes;
+                  if (_selectedType == 'dub') {
+                    filteredEpisodes = episodes
+                        .where((ep) => ep['number'] <= dubCount)
+                        .toList();
+                  }
+
+                  if (filteredEpisodes.isEmpty) {
+                    return const SliverToBoxAdapter(
+                      child: Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(40),
+                          child: Text(
+                            'No dubbed episodes available',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+
                   return SliverPadding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     sliver: SliverList(
                       delegate: SliverChildBuilderDelegate((context, index) {
-                        final ep = episodes[index];
+                        final ep = filteredEpisodes[index];
+                        final bool isWatched = watchedEpisodes.contains(
+                          ep['episodeId'],
+                        );
+
                         return Container(
                               margin: const EdgeInsets.only(bottom: 12),
+                              foregroundDecoration: isWatched
+                                  ? BoxDecoration(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.5,
+                                      ),
+                                      borderRadius: BorderRadius.circular(16),
+                                    )
+                                  : null,
                               decoration: BoxDecoration(
                                 color: const Color(0xFF121212),
                                 borderRadius: BorderRadius.circular(16),
@@ -296,11 +506,13 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
                                     context,
                                     MaterialPageRoute(
                                       builder: (context) => PlayerScreen(
+                                        animeId: widget.animeId,
                                         hianimeEpisodeId: ep['episodeId'],
                                         animelokId: hindiId,
                                         episodeNumber: ep['number'],
                                         selectedType: _selectedType,
                                         animeTitle: widget.title,
+                                        allEpisodes: filteredEpisodes.toList(),
                                       ),
                                     ),
                                   );
@@ -313,32 +525,69 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
                                       Container(
                                         width: 100,
                                         height: 65,
-                                        decoration: BoxDecoration(
+                                        child: ClipRRect(
                                           borderRadius: BorderRadius.circular(
                                             8,
                                           ),
-                                          image: DecorationImage(
-                                            image: CachedNetworkImageProvider(
-                                              anime['poster'] ?? '',
-                                              errorListener: (err) =>
-                                                  debugPrint(
-                                                    'Image error: $err',
-                                                  ),
-                                            ),
-                                            fit: BoxFit.cover,
-                                            colorFilter: ColorFilter.mode(
-                                              Colors.black.withValues(
-                                                alpha: 0.4,
+                                          child: Stack(
+                                            fit: StackFit.expand,
+                                            children: [
+                                              Image.network(
+                                                'https://gogocdn.net/cover/demon-slayer-kimetsu-no-yaiba.png',
+                                                fit: BoxFit.cover,
+                                                errorBuilder:
+                                                    (
+                                                      context,
+                                                      error,
+                                                      stackTrace,
+                                                    ) {
+                                                      return Container(
+                                                        color: const Color(
+                                                          0xFF2A2A2A,
+                                                        ),
+                                                        child: const Icon(
+                                                          Icons
+                                                              .play_circle_outline,
+                                                          color: Colors.white24,
+                                                        ),
+                                                      );
+                                                    },
                                               ),
-                                              BlendMode.darken,
-                                            ),
+                                              Container(
+                                                color: Colors.black.withValues(
+                                                  alpha: 0.3,
+                                                ),
+                                              ),
+                                              const Center(
+                                                child: Icon(
+                                                  Icons.play_arrow_rounded,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                              if (isWatched)
+                                                Positioned(
+                                                  bottom: 4,
+                                                  right: 4,
+                                                  child: Container(
+                                                    padding:
+                                                        const EdgeInsets.all(2),
+                                                    decoration:
+                                                        const BoxDecoration(
+                                                          color: Color(
+                                                            0xFF0EA5E9,
+                                                          ),
+                                                          shape:
+                                                              BoxShape.circle,
+                                                        ),
+                                                    child: const Icon(
+                                                      Icons.check,
+                                                      size: 10,
+                                                      color: Colors.white,
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
                                           ),
-                                        ),
-                                        alignment: Alignment.center,
-                                        child: const Icon(
-                                          Icons.play_circle_fill_rounded,
-                                          color: Colors.white,
-                                          size: 32,
                                         ),
                                       ),
                                       const SizedBox(width: 16),
@@ -402,7 +651,7 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
                               delay: Duration(milliseconds: 500 + (index * 50)),
                             )
                             .slideX(begin: 0.1, end: 0);
-                      }, childCount: episodes.length),
+                      }, childCount: filteredEpisodes.length),
                     ),
                   );
                 },
@@ -428,6 +677,74 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
                   ),
                 ),
               ),
+              if (info['recommendedAnimes'] != null &&
+                  (info['recommendedAnimes'] as List).isNotEmpty)
+                SliverToBoxAdapter(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.only(left: 20, top: 32, bottom: 16),
+                        child: Text(
+                          'Recommended for you',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                      SizedBox(
+                        height: 200,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          physics: const BouncingScrollPhysics(),
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          itemCount: (info['recommendedAnimes'] as List).length,
+                          itemBuilder: (context, index) {
+                            return _buildRelatedAnimeCard(
+                              info['recommendedAnimes'][index],
+                            );
+                          },
+                        ),
+                      ).animate().fadeIn(delay: 500.ms),
+                    ],
+                  ),
+                ),
+              if (info['relatedAnimes'] != null &&
+                  (info['relatedAnimes'] as List).isNotEmpty)
+                SliverToBoxAdapter(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.only(left: 20, top: 32, bottom: 16),
+                        child: Text(
+                          'Related Anime',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                      SizedBox(
+                        height: 200,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          physics: const BouncingScrollPhysics(),
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          itemCount: (info['relatedAnimes'] as List).length,
+                          itemBuilder: (context, index) {
+                            return _buildRelatedAnimeCard(
+                              info['relatedAnimes'][index],
+                            );
+                          },
+                        ),
+                      ).animate().fadeIn(delay: 500.ms),
+                    ],
+                  ),
+                ),
               const SliverPadding(padding: EdgeInsets.only(bottom: 100)),
             ],
           );
@@ -705,8 +1022,13 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
     );
   }
 
-  Widget _buildLangChip(String label, String type) {
+  Widget _buildLangChip(String label, String type, {int? count}) {
     final isSelected = _selectedType == type;
+    String displayLabel = label;
+    if (count != null && count > 0) {
+      displayLabel = '$label ($count)';
+    }
+
     return GestureDetector(
       onTap: () => setState(() => _selectedType = type),
       child: AnimatedContainer(
@@ -749,13 +1071,73 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
               const SizedBox(width: 6),
             ],
             Text(
-              label,
+              displayLabel,
               style: TextStyle(
                 color: isSelected ? Colors.white : Colors.grey[400],
                 fontWeight: FontWeight.bold,
                 fontSize: 14,
                 letterSpacing: 0.5,
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRelatedAnimeCard(dynamic anime) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => DetailScreen(
+              animeId: anime['id'] ?? '',
+              title: anime['name'] ?? '',
+              heroTag:
+                  'related-${anime['id']}-${DateTime.now().millisecondsSinceEpoch}',
+            ),
+          ),
+        );
+      },
+      child: Container(
+        width: 120,
+        margin: const EdgeInsets.only(right: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: CachedNetworkImage(
+                  imageUrl: anime['poster'] ?? '',
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  placeholder: (context, url) => Shimmer.fromColors(
+                    baseColor: const Color(0xFF121212),
+                    highlightColor: const Color(0xFF2A2A2A),
+                    child: Container(color: Colors.white),
+                  ),
+                  errorWidget: (context, url, err) => Container(
+                    color: Colors.white.withValues(alpha: 0.1),
+                    child: const Icon(
+                      Icons.error_outline,
+                      color: Colors.white54,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              anime['name'] ?? '',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),

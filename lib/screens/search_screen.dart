@@ -244,19 +244,28 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       );
     }
 
-    return GridView.builder(
-      padding: const EdgeInsets.all(20),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2, // 2 columns
-        childAspectRatio: 0.7, // Portrait aspect ratio
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 16,
-      ),
-      itemCount: _searchResults.length,
-      itemBuilder: (context, index) {
-        final anime = _searchResults[index];
-        return _buildAnimeCard(anime, index);
+    return RefreshIndicator(
+      onRefresh: () async {
+        if (_searchController.text.isNotEmpty) {
+          await _performSearch(_searchController.text);
+        }
       },
+      color: const Color(0xFF0EA5E9),
+      backgroundColor: const Color(0xFF1E1E2A),
+      child: GridView.builder(
+        padding: const EdgeInsets.all(20),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2, // 2 columns
+          childAspectRatio: 0.7, // Portrait aspect ratio
+          crossAxisSpacing: 16,
+          mainAxisSpacing: 16,
+        ),
+        itemCount: _searchResults.length,
+        itemBuilder: (context, index) {
+          final anime = _searchResults[index];
+          return _buildAnimeCard(anime, index);
+        },
+      ),
     );
   }
 

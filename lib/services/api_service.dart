@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:math';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/app_config.dart';
@@ -18,16 +20,62 @@ class ApiService {
       ),
     );
 
-    // Add interceptors for automated retry and logging if needed
+    // Add interceptor for automated retry and logging with exponential backoff
     _dio.interceptors.add(
       InterceptorsWrapper(
-        onError: (DioException e, handler) {
-          // We can add retry logic here if needed, but for now just pass the error
-          // to be caught by the methods below
+        onError: (DioException e, handler) async {
+          // Check if we should retry (e.g. timeout, 5xx server errors, no connection)
+          final shouldRetry =
+              _shouldRetry(e) && (e.requestOptions.extra['retries'] ?? 0) < 3;
+
+          if (shouldRetry) {
+            final int retryCount = (e.requestOptions.extra['retries'] ?? 0) + 1;
+            e.requestOptions.extra['retries'] = retryCount;
+
+            // Exponential backoff: 2^retryCount * 1000ms + random jitter
+            final retryDelay = Duration(
+              milliseconds:
+                  (pow(2, retryCount) * 1000).toInt() + Random().nextInt(500),
+            );
+
+            await Future.delayed(retryDelay);
+
+            try {
+              // Create a completely new Dio client for the retry to avoid interceptor loops
+              // that might occur if we just called _dio.fetch(e.requestOptions)
+              final result = await Dio().fetch(e.requestOptions);
+              return handler.resolve(result);
+            } catch (retryError) {
+              if (retryError is DioException) {
+                // If the retry itself fails, pass the new error to the interceptor again
+                // it will hit this onError block and evaluate if it should retry further
+                return handler.next(retryError);
+              }
+            }
+          }
+
+          // Max retries reached or not a retryable error
           return handler.next(e);
         },
       ),
     );
+  }
+
+  bool _shouldRetry(DioException err) {
+    if (err.type == DioExceptionType.connectionTimeout ||
+        err.type == DioExceptionType.sendTimeout ||
+        err.type == DioExceptionType.receiveTimeout ||
+        err.type == DioExceptionType.connectionError) {
+      return true;
+    }
+    if (err.response != null) {
+      final statusCode = err.response!.statusCode;
+      // Retry on internal server errors or rate limits
+      if (statusCode != null && (statusCode >= 500 || statusCode == 429)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // --- HiAnime Endpoints ---

@@ -54,6 +54,7 @@ dependencies:
   shared_preferences: ^2.5.1
   encrypt: ^5.0.3
   crypto: ^3.0.7
+  smooth_page_indicator: ^2.0.1
 
 dev_dependencies:
   flutter_test:
