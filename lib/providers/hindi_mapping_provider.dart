@@ -17,7 +17,7 @@ final hindiMappingProvider =
         try {
           final res = await api
               .getAnimelokWatch(slug, 1)
-              .timeout(const Duration(seconds: 4));
+              .timeout(const Duration(seconds: 2));
           if (res != null &&
               res['servers'] != null &&
               (res['servers'] as List).isNotEmpty) {
@@ -129,4 +129,16 @@ final hindiMappingProvider =
       } catch (_) {}
 
       return null;
+    });
+
+/// Provider that returns total Hindi episode count for a given anime
+final hindiEpisodeCountProvider =
+    FutureProvider.family<int, ({String id, String title})>((
+      ref,
+      params,
+    ) async {
+      final slug = await ref.watch(hindiMappingProvider(params).future);
+      if (slug == null) return 0;
+      final api = ref.read(apiServiceProvider);
+      return api.getAnimelokEpisodeCount(slug);
     });

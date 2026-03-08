@@ -186,105 +186,89 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       if (widget.selectedType == 'hindi' && widget.animelokId != null) {
         final api = ref.read(apiServiceProvider);
 
-        // Try multiple episode numbers to find the right Hindi episode
-        List<int> episodeNumbersToTry = [widget.episodeNumber];
-        if (widget.episodeNumber > 1) {
-          episodeNumbersToTry.add(widget.episodeNumber - 1);
-        }
-        episodeNumbersToTry.add(widget.episodeNumber + 1);
+        // Fetch the exact episode directly — no need to try ±1 offsets
+        // since we now have accurate Hindi episode counts
+        final res = await api.getAnimelokWatch(
+          widget.animelokId!,
+          widget.episodeNumber,
+        );
 
-        Map<String, dynamic>? bestRes;
+        if (res != null && res['servers'] != null) {
+          final List servers = res['servers'];
+          final hindiServers = servers
+              .where(
+                (s) =>
+                    s['language'] == 'Hindi' ||
+                    s['name'] == 'Hindi' ||
+                    s['tip'] == 'Multi' ||
+                    s['name'] == 'Multi',
+              )
+              .toList();
 
-        for (int epNum in episodeNumbersToTry) {
-          try {
-            final res = await api.getAnimelokWatch(widget.animelokId!, epNum);
-            if (res != null && res['servers'] != null) {
-              final List servers = res['servers'];
-              // Look for Hindi servers
-              final hindiServers = servers
-                  .where(
-                    (s) =>
-                        s['language'] == 'Hindi' ||
-                        s['name'] == 'Hindi' ||
-                        s['tip'] == 'Multi' ||
-                        s['name'] == 'Multi',
-                  )
-                  .toList();
-
-              if (hindiServers.isNotEmpty) {
-                // Strictly prioritize the 'Multi' server for Hindi as requested!
-                final selectedServer = hindiServers.firstWhere(
-                  (s) => s['name'] == 'Multi' && s['language'] == 'Hindi',
-                  orElse: () => hindiServers.firstWhere(
-                    (s) => s['name'] == 'Multi',
-                    orElse: () => hindiServers.firstWhere(
-                      (s) => s['language'] == 'Hindi' && s['isM3U8'] == true,
-                      orElse: () => hindiServers.first,
-                    ),
-                  ),
-                );
-
-                bestRes = {'server': selectedServer, 'episodeNumber': epNum};
-                break; // Found Hindi, use this
-              }
-            }
-          } catch (_) {
-            continue;
-          }
-        }
-
-        if (bestRes != null) {
-          final server = bestRes['server'];
-          streamUrl = server['url'];
-          if (streamUrl != null && streamUrl.contains('localhost:4000')) {
-            streamUrl = streamUrl.replaceFirst(
-              'http://localhost:4000',
-              AppConfig.apiBaseUrl.replaceAll('/api/v1', ''),
+          if (hindiServers.isNotEmpty) {
+            final selectedServer = hindiServers.firstWhere(
+              (s) => s['name'] == 'Multi' && s['language'] == 'Hindi',
+              orElse: () => hindiServers.firstWhere(
+                (s) => s['name'] == 'Multi',
+                orElse: () => hindiServers.firstWhere(
+                  (s) => s['language'] == 'Hindi' && s['isM3U8'] == true,
+                  orElse: () => hindiServers.first,
+                ),
+              ),
             );
+
+            streamUrl = selectedServer['url'];
+            if (streamUrl != null && streamUrl.contains('localhost:4000')) {
+              streamUrl = streamUrl.replaceFirst(
+                'http://localhost:4000',
+                AppConfig.apiBaseUrl.replaceAll('/api/v1', ''),
+              );
+            }
+            isM3U8 = selectedServer['isM3U8'] == true;
+            if (isM3U8) baseUrl = 'https://animelok.site/';
+          } else {
+            throw Exception('No Hindi server found for this episode');
           }
-          isM3U8 = server['isM3U8'] == true;
-          if (isM3U8) baseUrl = 'https://animelok.site/';
         } else {
-          throw Exception('No Hindi server found for this episode');
+          throw Exception('No Hindi data found for this episode');
         }
       } else {
-        // Fetch HiAnime sources
+        // Fetch HiAnime sources — try hd-2 and default in parallel, pick best
         final api = ref.read(apiServiceProvider);
-        Map<String, dynamic>? res;
 
-        // 1. Try fetching 'hd-2' specifically
-        try {
+        final futures = await Future.wait([
+          api
+              .getHiAnimeEpisodeSources(
+                widget.hianimeEpisodeId,
+                widget.selectedType,
+                'hd-2',
+              )
+              .catchError((_) => null),
+          api
+              .getHiAnimeEpisodeSources(
+                widget.hianimeEpisodeId,
+                widget.selectedType,
+              )
+              .catchError((_) => null),
+        ]);
+
+        // Prefer hd-2 result, fallback to default
+        Map<String, dynamic>? res;
+        for (final r in futures) {
+          if (r != null &&
+              r['sources'] != null &&
+              (r['sources'] as List).isNotEmpty) {
+            res = r;
+            break;
+          }
+        }
+
+        // If both failed and type was dub, try sub as last resort
+        if (res == null && widget.selectedType == 'dub') {
           res = await api.getHiAnimeEpisodeSources(
             widget.hianimeEpisodeId,
-            widget.selectedType,
-            'hd-2', // Prefer HD-2
+            'sub',
           );
-        } catch (_) {}
-
-        // 2. Fallback to default if HD-2 failed or returned no sources
-        if (res == null ||
-            res['sources'] == null ||
-            (res['sources'] as List).isEmpty) {
-          try {
-            res = await api.getHiAnimeEpisodeSources(
-              widget.hianimeEpisodeId,
-              widget.selectedType,
-            );
-          } catch (_) {
-            // 3. Fallback to sub if dub failed
-            if (widget.selectedType == 'dub') {
-              try {
-                res = await api.getHiAnimeEpisodeSources(
-                  widget.hianimeEpisodeId,
-                  'sub',
-                );
-              } catch (e) {
-                rethrow;
-              }
-            } else {
-              rethrow;
-            }
-          }
         }
 
         if (res != null && res['sources'] != null) {

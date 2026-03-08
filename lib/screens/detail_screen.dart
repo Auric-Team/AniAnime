@@ -57,6 +57,9 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
     final hindiMappingAsync = ref.watch(
       hindiMappingProvider((id: widget.animeId, title: widget.title)),
     );
+    final hindiCountAsync = ref.watch(
+      hindiEpisodeCountProvider((id: widget.animeId, title: widget.title)),
+    );
     final isSaved = ref
         .read(watchlistProvider.notifier)
         .isInWatchlist(widget.animeId);
@@ -395,9 +398,16 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
                             ],
                             const SizedBox(width: 12),
                             hindiMappingAsync.when(
-                              data: (hindiId) => hindiId != null
-                                  ? _buildLangChip('Hindi', 'hindi')
-                                  : const SizedBox.shrink(),
+                              data: (hindiId) {
+                                if (hindiId == null)
+                                  return const SizedBox.shrink();
+                                final hindiCount = hindiCountAsync.value ?? 0;
+                                return _buildLangChip(
+                                  'Hindi',
+                                  'hindi',
+                                  count: hindiCount > 0 ? hindiCount : null,
+                                );
+                              },
                               loading: () => const Padding(
                                 padding: EdgeInsets.all(8.0),
                                 child: SizedBox(
@@ -456,6 +466,13 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
                     filteredEpisodes = episodes
                         .where((ep) => ep['number'] <= dubCount)
                         .toList();
+                  } else if (_selectedType == 'hindi') {
+                    final hindiCount = hindiCountAsync.value ?? 0;
+                    if (hindiCount > 0) {
+                      filteredEpisodes = episodes
+                          .where((ep) => ep['number'] <= hindiCount)
+                          .toList();
+                    }
                   }
 
                   if (filteredEpisodes.isEmpty) {

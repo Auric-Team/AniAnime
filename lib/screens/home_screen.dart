@@ -4,7 +4,6 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import '../providers/anime_provider.dart';
 import '../providers/watch_history_provider.dart';
 import 'detail_screen.dart';

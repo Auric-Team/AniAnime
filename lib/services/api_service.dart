@@ -32,10 +32,10 @@ class ApiService {
             final int retryCount = (e.requestOptions.extra['retries'] ?? 0) + 1;
             e.requestOptions.extra['retries'] = retryCount;
 
-            // Exponential backoff: 2^retryCount * 1000ms + random jitter
+            // Exponential backoff: 2^retryCount * 500ms + random jitter (faster retries)
             final retryDelay = Duration(
               milliseconds:
-                  (pow(2, retryCount) * 1000).toInt() + Random().nextInt(500),
+                  (pow(2, retryCount) * 500).toInt() + Random().nextInt(300),
             );
 
             await Future.delayed(retryDelay);
@@ -146,6 +146,28 @@ class ApiService {
   }
 
   // --- Animelok Endpoints (Hindi) ---
+
+  /// Binary search to find max available Hindi episode
+  Future<int> getAnimelokEpisodeCount(String slug) async {
+    int lo = 1, hi = 100, best = 0;
+    while (lo <= hi) {
+      final mid = (lo + hi) ~/ 2;
+      try {
+        final res = await getAnimelokWatch(slug, mid);
+        if (res != null &&
+            res['servers'] != null &&
+            (res['servers'] as List).isNotEmpty) {
+          best = mid;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      } catch (_) {
+        hi = mid - 1;
+      }
+    }
+    return best;
+  }
 
   Future<Map<String, dynamic>?> searchAnimelok(String query) async {
     try {
