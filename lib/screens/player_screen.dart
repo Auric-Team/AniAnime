@@ -159,6 +159,31 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   Future<void> _loadStream() async {
     try {
+      // Wrap the entire stream loading in a 15-second timeout
+      await _doLoadStream().timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          if (mounted) {
+            setState(() {
+              _errorMsg = "Stream took too long to load. Tap retry or go back.";
+              _isLoading = false;
+            });
+          }
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMsg =
+              "Unable to load stream. Please try again or switch servers.";
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _doLoadStream() async {
+    try {
       ref
           .read(watchHistoryProvider.notifier)
           .markEpisodeWatched(
@@ -500,8 +525,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     if (data.fatal) {
                         switch(data.type) {
                             case Hls.ErrorTypes.NETWORK_ERROR:
-                                console.log("Network error, recovering...");
-                                hls.startLoad();
+                                window._networkRetries = (window._networkRetries || 0) + 1;
+                                if (window._networkRetries < 3) {
+                                    console.log("Network error, retry " + window._networkRetries + "/3");
+                                    hls.startLoad();
+                                } else {
+                                    hls.destroy();
+                                    showError("Network error after 3 retries. Check your connection.");
+                                }
                                 break;
                             case Hls.ErrorTypes.MEDIA_ERROR:
                                 console.log("Media error, recovering...");
@@ -514,6 +545,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                         }
                     }
                 });
+
+                // Safety timeout: if stream never loads after 20s, show error
+                setTimeout(function() {
+                    if (loadingMsg.style.display !== 'none') {
+                        showError("Stream timed out. The server may be down. Tap retry.");
+                    }
+                }, 20000);
                 
                 hls.attachMedia(video);
                 window.hls = hls;
