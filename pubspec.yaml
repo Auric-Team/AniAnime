@@ -51,6 +51,9 @@ dependencies:
   url_launcher: ^6.3.2
   webview_flutter_android: ^4.10.13
   webview_flutter_wkwebview: ^3.23.8
+  shared_preferences: ^2.5.1
+  encrypt: ^5.0.3
+  crypto: ^3.0.7
 
 dev_dependencies:
   flutter_test:

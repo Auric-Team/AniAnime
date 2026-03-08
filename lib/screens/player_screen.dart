@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,6 +5,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 import '../services/api_service.dart';
+import '../config/app_config.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
   final String hianimeEpisodeId;
@@ -38,7 +38,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     super.initState();
     // Allow landscape rotation for full screen immersive experience
     SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
@@ -92,7 +91,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 url.contains('stream')) {
               return NavigationDecision.navigate;
             }
-            // Block all other redirects (e.g. ad popups attempting to hijack the frame)
+            // Block all other redirects
             return NavigationDecision.prevent;
           },
           onPageFinished: (String url) {
@@ -103,8 +102,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             }
           },
           onWebResourceError: (WebResourceError error) {
-            // Ignore resource errors (like failing to fetch a .ts video segment)
-            // as HLS.js handles retrying these automatically in the background.
             if (error.isForMainFrame ?? false) {
               if (mounted) {
                 setState(() {
@@ -138,29 +135,32 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
       if (widget.selectedType == 'hindi' && widget.animelokId != null) {
         final api = ref.read(apiServiceProvider);
-        
+
         // Try multiple episode numbers to find the right Hindi episode
         List<int> episodeNumbersToTry = [widget.episodeNumber];
         if (widget.episodeNumber > 1) {
           episodeNumbersToTry.add(widget.episodeNumber - 1);
         }
         episodeNumbersToTry.add(widget.episodeNumber + 1);
-        
+
         Map<String, dynamic>? bestRes;
-        
+
         for (int epNum in episodeNumbersToTry) {
           try {
             final res = await api.getAnimelokWatch(widget.animelokId!, epNum);
             if (res != null && res['servers'] != null) {
               final List servers = res['servers'];
               // Look for Hindi servers
-              final hindiServers = servers.where((s) => 
-                s['language'] == 'Hindi' || 
-                s['name'] == 'Hindi' || 
-                s['tip'] == 'Multi' || 
-                s['name'] == 'Multi'
-              ).toList();
-              
+              final hindiServers = servers
+                  .where(
+                    (s) =>
+                        s['language'] == 'Hindi' ||
+                        s['name'] == 'Hindi' ||
+                        s['tip'] == 'Multi' ||
+                        s['name'] == 'Multi',
+                  )
+                  .toList();
+
               if (hindiServers.isNotEmpty) {
                 // Strictly prioritize the 'Multi' server for Hindi as requested!
                 final selectedServer = hindiServers.firstWhere(
@@ -173,11 +173,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     ),
                   ),
                 );
-                
-                bestRes = {
-                  'server': selectedServer,
-                  'episodeNumber': epNum,
-                };
+
+                bestRes = {'server': selectedServer, 'episodeNumber': epNum};
                 break; // Found Hindi, use this
               }
             }
@@ -185,12 +182,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             continue;
           }
         }
-        
+
         if (bestRes != null) {
           final server = bestRes['server'];
           streamUrl = server['url'];
           if (streamUrl != null && streamUrl.contains('localhost:4000')) {
-            streamUrl = streamUrl.replaceFirst('http://localhost:4000', 'https://api.tatakai.me');
+            streamUrl = streamUrl.replaceFirst(
+              'http://localhost:4000',
+              AppConfig.apiBaseUrl.replaceAll('/api/v1', ''),
+            );
           }
           isM3U8 = server['isM3U8'] == true;
           if (isM3U8) baseUrl = 'https://animelok.site/';
@@ -198,31 +198,46 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           throw Exception('No Hindi server found for this episode');
         }
       } else {
-        // Fetch HiAnime sources using API directly!
+        // Fetch HiAnime sources
         final api = ref.read(apiServiceProvider);
         Map<String, dynamic>? res;
+
+        // 1. Try fetching 'hd-2' specifically
         try {
           res = await api.getHiAnimeEpisodeSources(
             widget.hianimeEpisodeId,
             widget.selectedType,
+            'hd-2', // Prefer HD-2
           );
-        } catch (e) {
-          // If dub fails, try falling back to sub automatically!
-          if (widget.selectedType == 'dub') {
-            try {
-              res = await api.getHiAnimeEpisodeSources(
-                widget.hianimeEpisodeId,
-                'sub',
-              );
-            } catch (_) {
+        } catch (_) {}
+
+        // 2. Fallback to default if HD-2 failed or returned no sources
+        if (res == null ||
+            res['sources'] == null ||
+            (res['sources'] as List).isEmpty) {
+          try {
+            res = await api.getHiAnimeEpisodeSources(
+              widget.hianimeEpisodeId,
+              widget.selectedType,
+            );
+          } catch (_) {
+            // 3. Fallback to sub if dub failed
+            if (widget.selectedType == 'dub') {
+              try {
+                res = await api.getHiAnimeEpisodeSources(
+                  widget.hianimeEpisodeId,
+                  'sub',
+                );
+              } catch (e) {
+                rethrow;
+              }
+            } else {
               rethrow;
             }
-          } else {
-            rethrow;
           }
         }
 
-        if (res['sources'] != null) {
+        if (res != null && res['sources'] != null) {
           final sources = res['sources'] as List;
           if (sources.isNotEmpty) {
             final hlsSource = sources.firstWhere(
@@ -242,33 +257,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       }
 
       if (streamUrl == null) {
-        // For Hindi, fallback to sub if Hindi not available
-        if (widget.selectedType == 'hindi') {
-          try {
-            final api = ref.read(apiServiceProvider);
-            final res = await api.getHiAnimeEpisodeSources(widget.hianimeEpisodeId, 'sub');
-            if (res['sources'] != null) {
-              final sources = res['sources'] as List;
-              if (sources.isNotEmpty) {
-                final hlsSource = sources.firstWhere(
-                  (s) => s['isM3U8'] == true,
-                  orElse: () => sources.first,
-                );
-                streamUrl = hlsSource['url'];
-                isM3U8 = hlsSource['isM3U8'] == true;
-                tracks = res['tracks'] as List? ?? [];
-                final headers = res['headers'] as Map<String, dynamic>? ?? {};
-                if (headers['Referer'] != null) {
-                  baseUrl = headers['Referer'];
-                }
-              }
-            }
-          } catch (_) {
-            throw Exception('No Hindi stream found and fallback failed.');
-          }
-        } else {
-          throw Exception('No stream found for the selected language.');
-        }
+        throw Exception('No stream found for the selected language.');
       }
 
       _currentBaseUrl = baseUrl;
@@ -301,97 +290,114 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     <title>Player</title>
     <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;700&display=swap');
+        
+        :root {
+            --primary: #8B5CF6;
+            --secondary: #EC4899;
+            --bg: #0F172A;
+            --surface: rgba(30, 41, 59, 0.95);
+        }
+
         body, html { 
             margin: 0; padding: 0; width: 100%; height: 100%; 
             background: #000; overflow: hidden; 
             display: flex; align-items: center; justify-content: center; 
-            font-family: 'Montserrat', sans-serif;
-            -webkit-font-smoothing: antialiased;
+            font-family: 'Outfit', sans-serif;
+            -webkit-tap-highlight-color: transparent;
         }
+        
         .plyr--video { width: 100%; height: 100%; background: #000; }
-        :root { 
-            --plyr-color-main: #E11D48;
-            --plyr-video-control-color-hover: #fff;
-            --plyr-video-control-background-hover: rgba(225, 29, 72, 0.9);
-            --plyr-menu-background: rgba(15, 23, 42, 0.95);
+        
+        .plyr {
+            --plyr-color-main: var(--primary);
+            --plyr-video-control-color: #fff;
+            --plyr-menu-background: var(--surface);
             --plyr-menu-color: #fff;
-            --plyr-font-family: 'Montserrat', sans-serif;
-            --plyr-video-controls-background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0) 100%);
-            --plyr-range-track-height: 6px;
-            --plyr-range-thumb-height: 16px;
+            --plyr-menu-radius: 12px;
+            --plyr-font-family: 'Outfit', sans-serif;
         }
-        
+
+        /* Modern Controls */
         .plyr__control--overlaid {
-            background: rgba(225, 29, 72, 0.85);
-            box-shadow: 0 8px 25px rgba(225, 29, 72, 0.5);
-            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            background: rgba(139, 92, 246, 0.8);
+            backdrop-filter: blur(8px);
+            border-radius: 50%;
             padding: 24px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
+        
         .plyr__control--overlaid:hover {
-            transform: scale(1.15);
-            background: rgba(225, 29, 72, 1);
-            box-shadow: 0 10px 30px rgba(225, 29, 72, 0.6);
+            transform: scale(1.1);
+            background: var(--primary);
+            box-shadow: 0 0 30px rgba(139, 92, 246, 0.5);
         }
-        
+
         .plyr__controls {
-            padding-bottom: 25px !important;
-            padding-left: 20px !important;
-            padding-right: 20px !important;
+            background: linear-gradient(to top, rgba(0,0,0,0.95), transparent) !important;
+            padding: 30px 24px !important;
+        }
+        
+        .plyr__menu__container {
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.1);
         }
 
-        /* Hide native plyr error screen to prevent aesthetic disruption */
-        .plyr__video-wrapper::after, .plyr__error {
-            display: none !important;
-        }
-
-        #error-msg { 
-            position: absolute; color: white; z-index: 10; 
-            text-align: center; padding: 40px; display: none; 
-            background: rgba(15, 23, 42, 0.85); 
-            border-radius: 24px; border: 1px solid rgba(255,255,255,0.05);
-            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-            box-shadow: 0 25px 50px rgba(0,0,0,0.6);
-            max-width: 85%;
-            animation: fadeIn 0.5s ease;
-        }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        
-        #error-msg h3 { margin: 0 0 15px 0; color: #f43f5e; font-size: 1.5rem; font-weight: 700; letter-spacing: -0.5px;}
-        #error-msg p { margin: 0 0 25px 0; color: #cbd5e1; font-size: 1rem; line-height: 1.6; }
-        #error-msg button {
-            padding: 12px 32px; background: linear-gradient(135deg, #E11D48, #BE123C);
-            color: #fff; border: none; border-radius: 12px; font-weight: 600; font-size: 1rem;
-            cursor: pointer; font-family: 'Montserrat', sans-serif; transition: all 0.3s ease;
-            box-shadow: 0 10px 20px rgba(225, 29, 72, 0.3);
-        }
-        #error-msg button:hover { transform: translateY(-3px); box-shadow: 0 15px 25px rgba(225, 29, 72, 0.4); }
-        
+        /* Custom Loading */
         #loading { 
-            position: absolute; z-index: 5; 
+            position: absolute; z-index: 50; 
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             background: #000; width: 100%; height: 100%;
+            transition: opacity 0.3s ease;
         }
+        
         .loader {
-            width: 60px; height: 60px;
-            border: 4px solid rgba(255,255,255,0.1);
+            width: 50px; height: 50px;
+            border: 3px solid rgba(255,255,255,0.1);
             border-radius: 50%;
-            border-top-color: #E11D48;
-            animation: spin 1s cubic-bezier(0.68, -0.55, 0.265, 1.55) infinite;
+            border-top-color: var(--primary);
+            border-right-color: var(--secondary);
+            animation: spin 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55) infinite;
         }
+        
         .loading-text {
-            margin-top: 20px; color: #fff; font-weight: 600; letter-spacing: 2px;
-            text-transform: uppercase; font-size: 0.85rem; opacity: 0.8;
-            animation: pulse 1.5s ease-in-out infinite;
+            margin-top: 16px; color: rgba(255,255,255,0.8);
+            font-size: 0.9rem; letter-spacing: 1px;
+            font-weight: 500;
         }
+
+        /* Error UI */
+        #error-msg {
+            position: absolute; color: white; z-index: 60;
+            text-align: center; width: 80%;
+            background: rgba(15, 23, 42, 0.9);
+            padding: 32px; border-radius: 20px;
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.1);
+            display: none;
+        }
+
+        #error-msg h3 { margin: 0 0 12px; color: #EF4444; }
+        
+        #error-msg button {
+            background: var(--primary); color: white;
+            border: none; padding: 12px 24px;
+            border-radius: 8px; font-weight: 600;
+            margin-top: 20px; cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        #error-msg button:active { transform: scale(0.95); }
+
         @keyframes spin { 100% { transform: rotate(360deg); } }
-        @keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
     </style>
 </head>
 <body>
     <div id="loading">
         <div class="loader"></div>
-        <div class="loading-text">Loading Stream</div>
+        <div class="loading-text">INITIALIZING STREAM</div>
     </div>
     <div id="error-msg"></div>
     <video id="player" playsinline controls crossorigin>
@@ -408,166 +414,75 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             const errorMsg = document.getElementById('error-msg');
             const loadingMsg = document.getElementById('loading');
             
-            const defaultOptions = {
+            const options = {
                 captions: { active: true, update: true, language: 'en' },
                 controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
                 autoplay: true,
                 keyboard: { focused: true, global: true },
                 settings: ['captions', 'quality', 'speed', 'loop'],
-                tooltips: { controls: true, seek: true }
+                tooltips: { controls: true, seek: true },
+                speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] }
             };
 
             function showError(msg) {
                 loadingMsg.style.display = 'none';
                 errorMsg.style.display = 'block';
-                errorMsg.innerHTML = '<h3>Stream Unavailable</h3><p>' + msg + '</p><button onclick="location.reload()">Retry Connection</button>';
+                errorMsg.innerHTML = '<h3>Stream Error</h3><p>' + msg + '</p><button onclick="location.reload()">Retry Connection</button>';
             }
 
-            let player;
-            
-            function initPlayer(startTime = 0) {
-                loadingMsg.style.display = 'flex';
-                errorMsg.style.display = 'none';
-
-                if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-                    const hls = new Hls({
-                        maxBufferLength: 60,
-                        maxMaxBufferLength: 120,
-                        maxBufferSize: 120 * 1000 * 1000,
-                        maxBufferHole: 0.3,
-                        enableWorker: true,
-                        lowLatencyMode: false,
-                        backBufferLength: 60,
-                        manifestLoadingMaxRetry: 100,
-                        manifestLoadingRetryDelay: 1000,
-                        levelLoadingMaxRetry: 100,
-                        levelLoadingRetryDelay: 1000,
-                        fragLoadingMaxRetry: 100,
-                        fragLoadingRetryDelay: 1000,
-                        startLevel: -1
-                    });
-                    
-                    hls.autoLevelEnabled = true;
-                    hls.loadSource(source);
-
-                    hls.on(Hls.Events.MANIFEST_PARSED, function (event, data) {
-                        loadingMsg.style.display = 'none';
-                        const availableQualities = hls.levels.map((l) => l.height);
-                        defaultOptions.quality = {
-                            default: availableQualities[0],
-                            options: availableQualities,
-                            forced: true,
-                            onChange: (e) => {
-                                window.hls.levels.forEach((level, levelIndex) => {
-                                    if (level.height === e) {
-                                        window.hls.currentLevel = levelIndex;
-                                    }
-                                });
-                            },
-                        };
-                        
-                        if (!player) {
-                            player = new Plyr(video, defaultOptions);
-                        }
-                        
-                        if (startTime > 0) {
-                            video.currentTime = startTime;
-                        }
-                        
-                        const playPromise = video.play();
-                        if (playPromise !== undefined) {
-                            playPromise.catch(error => {
-                                console.log('Autoplay prevented', error);
-                            });
-                        }
-                    });
-
-                    let recoverDecodingErrorDate = null;
-                    let recoverSwapAudioCodecDate = null;
-
-                    hls.on(Hls.Events.ERROR, function(event, data) {
-                        if (data.fatal) {
-                            loadingMsg.style.display = 'flex';
-                            switch(data.type) {
-                                case Hls.ErrorTypes.NETWORK_ERROR:
-                                    console.log("Fatal network error encountered, try to recover");
-                                    setTimeout(() => {
-                                        hls.startLoad();
-                                    }, 2000);
-                                    break;
-                                case Hls.ErrorTypes.MEDIA_ERROR:
-                                    console.log("Fatal media error encountered, try to recover");
-                                    const now = performance.now();
-                                    if (!recoverDecodingErrorDate || now - recoverDecodingErrorDate > 3000) {
-                                        recoverDecodingErrorDate = now;
-                                        hls.recoverMediaError();
-                                    } else if (!recoverSwapAudioCodecDate || now - recoverSwapAudioCodecDate > 3000) {
-                                        recoverSwapAudioCodecDate = now;
-                                        hls.swapAudioCodec();
-                                        hls.recoverMediaError();
-                                    } else {
-                                        console.log("Cannot recover, trying to reload source...");
-                                        setTimeout(() => {
-                                            hls.startLoad();
-                                        }, 2000);
-                                    }
-                                    break;
-                                default:
-                                    // Auto reconnect on other fatal errors
-                                    console.log("Unrecoverable error, auto-reconnecting...");
-                                    setTimeout(() => {
-                                        hls.startLoad();
-                                    }, 2000);
-                                    break;
-                            }
-                        } else {
-                            // Non-fatal, just hide error if stream is ready
-                            if (video.readyState >= 3) {
-                                loadingMsg.style.display = 'none';
-                            }
-                        }
-                    });
-
-                    hls.on(Hls.Events.FRAG_BUFFERED, () => {
-                         loadingMsg.style.display = 'none';
-                    });
-
-                    hls.attachMedia(video);
-                    window.hls = hls;
-
-                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                    loadingMsg.style.display = 'none';
-                    if (!player) {
-                        player = new Plyr(video, defaultOptions);
-                    }
-                    video.src = source;
-                    if (startTime > 0) video.currentTime = startTime;
-                    video.play().catch(e => console.log('Autoplay prevented', e));
-                } else {
-                    loadingMsg.style.display = 'none';
-                    showError("Your browser doesn't support the required video format.");
-                }
-            }
-
-            try {
-                initPlayer();
+            if (Hls.isSupported()) {
+                const hls = new Hls({
+                    maxBufferLength: 60,
+                    enableWorker: true,
+                    lowLatencyMode: true, // Try low latency
+                    backBufferLength: 60,
+                });
                 
-                // Show loading spinner on buffering
-                video.addEventListener('waiting', () => {
-                    loadingMsg.style.display = 'flex';
-                });
-                video.addEventListener('playing', () => {
+                hls.loadSource(source);
+                
+                hls.on(Hls.Events.MANIFEST_PARSED, function (event, data) {
                     loadingMsg.style.display = 'none';
-                });
-                video.addEventListener('seeking', () => {
-                    loadingMsg.style.display = 'flex';
-                });
-                video.addEventListener('seeked', () => {
-                    loadingMsg.style.display = 'none';
+                    const availableQualities = hls.levels.map((l) => l.height);
+                    options.quality = {
+                        default: availableQualities[0],
+                        options: availableQualities,
+                        forced: true,
+                        onChange: (e) => {
+                            window.hls.levels.forEach((level, levelIndex) => {
+                                if (level.height === e) window.hls.currentLevel = levelIndex;
+                            });
+                        },
+                    };
+                    const player = new Plyr(video, options);
                 });
 
-            } catch (err) {
-                showError("An unexpected error occurred while loading the player.");
+                hls.on(Hls.Events.ERROR, function(event, data) {
+                    if (data.fatal) {
+                        switch(data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                console.log("Network error, recovering...");
+                                hls.startLoad();
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                console.log("Media error, recovering...");
+                                hls.recoverMediaError();
+                                break;
+                            default:
+                                hls.destroy();
+                                showError("Fatal playback error.");
+                                break;
+                        }
+                    }
+                });
+                
+                hls.attachMedia(video);
+                window.hls = hls;
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = source;
+                const player = new Plyr(video, options);
+                loadingMsg.style.display = 'none';
+            } else {
+                showError("Video format not supported.");
             }
         });
     </script>
@@ -575,8 +490,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 </html>
 ''';
         _controller.loadHtmlString(htmlString, baseUrl: baseUrl);
-      } else if (streamUrl != null) {
-        bool isAnimelok = widget.selectedType == 'hindi' || streamUrl.contains('animelok');
+      } else {
+        bool isAnimelok =
+            widget.selectedType == 'hindi' || streamUrl.contains('animelok');
         _controller.loadRequest(
           Uri.parse(streamUrl),
           headers: {
@@ -592,14 +508,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          String errorText = e.toString();
-          if (errorText.contains('400') || errorText.contains('404')) {
-            _errorMsg = "Episode unavailable. The server might have removed it or it's temporarily down.";
-          } else if (errorText.contains('timeout') || errorText.contains('522')) {
-            _errorMsg = "Connection timed out. The streaming server is taking too long to respond.";
-          } else {
-            _errorMsg = "Failed to load stream. Please try a different language or check your connection.";
-          }
+          _errorMsg =
+              "Unable to load stream. Please try again or switch servers.";
           _isLoading = false;
         });
       }
@@ -618,31 +528,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Icon(
-                        Icons.wifi_off_rounded,
+                        Icons.error_outline,
                         color: Colors.white54,
                         size: 64,
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        'Stream Error: $_errorMsg',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                        ),
-                        textAlign: TextAlign.center,
+                        _errorMsg!,
+                        style: const TextStyle(color: Colors.white),
                       ),
                       const SizedBox(height: 24),
-                      ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF0EA5E9),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 12,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                        ),
+                      ElevatedButton(
                         onPressed: () {
                           setState(() {
                             _isLoading = true;
@@ -650,17 +546,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                           });
                           _loadStream();
                         },
-                        icon: const Icon(
-                          Icons.refresh_rounded,
-                          color: Colors.white,
-                        ),
-                        label: const Text(
-                          'Reload Source',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                        child: const Text('Retry'),
                       ),
                     ],
                   )
@@ -669,37 +555,27 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     child: WebViewWidget(controller: _controller),
                   ),
           ),
-
           if (_isLoading)
             Container(
               color: Colors.black,
               child: const Center(
-                child: CircularProgressIndicator(
-                  color: Color(0xFF0EA5E9),
-                  strokeWidth: 3,
-                ),
+                child: CircularProgressIndicator(color: Color(0xFF8B5CF6)),
               ),
             ),
 
-          // Back Button Overlay
+          // Back Button
           Positioned(
-            top: MediaQuery.of(context).padding.top + 16,
-            left: 16,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(30),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(30),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-                  ),
-                  child: IconButton(
-                    icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-                    onPressed: () => Navigator.pop(context),
-                  ),
+            top: 20,
+            left: 20,
+            child: GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.5),
+                  shape: BoxShape.circle,
                 ),
+                child: const Icon(Icons.arrow_back, color: Colors.white),
               ),
             ),
           ),
